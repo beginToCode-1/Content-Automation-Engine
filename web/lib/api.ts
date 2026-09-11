@@ -209,3 +209,16 @@ export function platformsFromStr(value: string | undefined | null): string[] {
   if (!value) return [];
   return value.split(",").filter(Boolean);
 }
+
+// Per-user, multi-account platform OAuth connections (currently YouTube
+// only - see GET /api/accounts). `account_label` is the human-readable name
+// (e.g. the YouTube channel title) to show as the primary label; `id` is
+// what gets sent back as e.g. `youtube_account_id` on the four endpoints
+// that accept a platforms list.
+export interface Account {
+  id: string;
+  platform: string;
+  account_label: string;
+  external_account_id: string;
+  created_at: string;
+}

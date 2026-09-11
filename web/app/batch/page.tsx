@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import RelativeTime from "@/components/RelativeTime";
+import YouTubeAccountPicker from "@/components/YouTubeAccountPicker";
 import { apiFetch, platformsFromStr, type Batch, type MetaResponse } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -27,6 +28,7 @@ export default function BatchPage() {
   const isAdmin = user?.role === "admin";
   const [topic, setTopic] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube"]);
+  const [youtubeAccountId, setYoutubeAccountId] = useState<string | null>(null);
   const [videosCount, setVideosCount] = useState(2);
   const [clipsPerVideo, setClipsPerVideo] = useState(3);
   const [staggerMinutes, setStaggerMinutes] = useState(FALLBACK_DEFAULT_STAGGER_MINUTES);
@@ -108,6 +110,7 @@ export default function BatchPage() {
           clips_per_video: clipsPerVideo,
           stagger_gap_minutes: staggerMinutes,
           privacy,
+          youtube_account_id: platforms.includes("youtube") ? youtubeAccountId : undefined,
         }),
       });
       router.push(`/batch/${data.batch_id}`);
@@ -195,6 +198,7 @@ export default function BatchPage() {
                 <span className="icon-badge icon-tt">TT</span> TikTok
               </label>
             </div>
+            <YouTubeAccountPicker platforms={platforms} value={youtubeAccountId} onChange={setYoutubeAccountId} />
           </div>
 
           <div className="field">

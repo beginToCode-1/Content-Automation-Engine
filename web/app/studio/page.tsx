@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import YouTubeAccountPicker from "@/components/YouTubeAccountPicker";
 import { apiFetch, type Run } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -48,6 +49,7 @@ export default function StudioPage() {
   const isAdmin = user?.role === "admin";
   const [topic, setTopic] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube"]);
+  const [youtubeAccountId, setYoutubeAccountId] = useState<string | null>(null);
   const [mode, setMode] = useState("generate_and_upload");
   const [privacy, setPrivacy] = useState("private");
   const [statusText, setStatusText] = useState("");
@@ -142,7 +144,13 @@ export default function StudioPage() {
       const data = await apiFetch<{ run_id: string }>("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, mode, platforms, privacy }),
+        body: JSON.stringify({
+          topic,
+          mode,
+          platforms,
+          privacy,
+          youtube_account_id: platforms.includes("youtube") ? youtubeAccountId : undefined,
+        }),
       });
       setStatusText("");
       startPolling(data.run_id, topic);
@@ -222,6 +230,7 @@ export default function StudioPage() {
                   <span className="icon-badge icon-tt">TT</span> TikTok
                 </label>
               </div>
+              <YouTubeAccountPicker platforms={platforms} value={youtubeAccountId} onChange={setYoutubeAccountId} />
             </div>
 
             <div className="field">

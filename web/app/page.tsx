@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
+import YouTubeAccountPicker from "@/components/YouTubeAccountPicker";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -44,6 +45,7 @@ export default function SelfUploadPage() {
   const [description, setDescription] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube"]);
+  const [youtubeAccountId, setYoutubeAccountId] = useState<string | null>(null);
   const [privacy, setPrivacy] = useState("private");
   const [publishStatus, setPublishStatus] = useState("");
   const [publishSubmitting, setPublishSubmitting] = useState(false);
@@ -136,7 +138,14 @@ export default function SelfUploadPage() {
       const data = await apiFetch<{ run_id: string }>(`/api/self-upload/${draftId}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, hashtags: hashtagList, platforms, privacy }),
+        body: JSON.stringify({
+          title,
+          description,
+          hashtags: hashtagList,
+          platforms,
+          privacy,
+          youtube_account_id: platforms.includes("youtube") ? youtubeAccountId : undefined,
+        }),
       });
       router.push(`/runs/${data.run_id}`);
     } catch (e) {
@@ -385,6 +394,7 @@ export default function SelfUploadPage() {
                   <span className="icon-badge icon-tt">TT</span> TikTok
                 </label>
               </div>
+              <YouTubeAccountPicker platforms={platforms} value={youtubeAccountId} onChange={setYoutubeAccountId} />
             </div>
 
             <div className="field">

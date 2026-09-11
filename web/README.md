@@ -48,6 +48,32 @@ the client bundle as a `NEXT_PUBLIC_*` variable.
   hardcoded fallback constants (5, 5, 180 minutes, matching `content_engine/config.py`'s defaults) that are only
   used for the brief moment before that `/api/meta` fetch resolves.
 
+## Connected Accounts (per-user YouTube OAuth)
+
+Each user connects their own YouTube channel(s) - there is no more shared/global YouTube credential.
+
+- `app/accounts/page.tsx` (linked from the sidebar as "Connected Accounts") lists the current user's connected
+  accounts (`GET /api/accounts`), lets an admin disconnect one (`DELETE /api/accounts/{id}`, with a
+  `window.confirm` first), and has a "Connect YouTube" button.
+- Connecting is **not** a normal `apiFetch()` call: clicking "Connect YouTube" does a full browser navigation
+  (`window.location.href = ${apiUrl("/api/oauth/youtube/connect")}?token=${token}`) because Google's consent screen
+  redirects back to the backend's own callback, so there is no way to attach a fetch `Authorization` header the way
+  the rest of the app does. The backend then redirects the browser back to `/accounts?connected=youtube` on
+  success or `/accounts?error=<reason>` on failure; the page reads those via `useSearchParams()` (wrapped in a
+  `<Suspense>` boundary) on mount, shows a one-time dismissible banner using the existing `.info-banner` style, and
+  strips the query params from the URL afterward.
+- A viewer-role user can see the read-only account list but not the "Connect YouTube"/"Disconnect" buttons -
+  connected accounts are tied to the connecting admin's own Google credential and affect who a run can publish as,
+  so this follows the same "admin has full access, viewer is read-only" convention as the rest of the app.
+- `components/YouTubeAccountPicker.tsx` is a shared component used by all four forms that can target YouTube
+  (`app/studio/page.tsx`, `app/batch/page.tsx`, `app/schedule/page.tsx`, and the self-upload publish step in
+  `app/page.tsx`): when "YouTube" is checked as a target platform, it fetches `GET /api/accounts` and shows nothing
+  extra with 0 accounts connected (just an inline hint linking to `/accounts` - the backend's own 400 message is
+  clear enough that no client-side submit-blocking was added), a small "Publishing to: {label}" hint with exactly 1
+  (auto-selected server-side either way), or a `<select>` with 2+ (defaults to no selection, forcing an explicit
+  choice - the backend 400s with a clear message if `youtube_account_id` is left unset in that case). The chosen id
+  is included as `youtube_account_id` in the relevant POST body only when "youtube" is checked.
+
 ## Auth
 
 The backend requires a JWT (`Authorization: Bearer <token>`) on every route except `/api/auth/register`,
@@ -68,5 +94,6 @@ The backend requires a JWT (`Authorization: Bearer <token>`) on every route exce
 - `admin` has full access; `viewer` is read-only. The backend enforces this server-side (403 on a viewer hitting an
   admin-only route) - the UI additionally hides or disables the corresponding controls (starting a run, retrying a
   run, cancelling a scheduled upload, creating a batch, creating/cancelling a schedule, the self-upload
-  draft+publish flow) for a `viewer`-role user via `const isAdmin = user?.role === "admin"` checks in the relevant
-  pages, as a UX nicety on top of that server-side boundary.
+  draft+publish flow, connecting/disconnecting a YouTube account) for a `viewer`-role user via
+  `const isAdmin = user?.role === "admin"` checks in the relevant pages, as a UX nicety on top of that server-side
+  boundary.

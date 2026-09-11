@@ -74,6 +74,7 @@ export default function Sidebar() {
   const isBatch = pathname === "/batch" || pathname.startsWith("/batch/");
   const isSchedule = pathname === "/schedule";
   const isRuns = pathname === "/runs" || pathname.startsWith("/runs/");
+  const isAccounts = pathname === "/accounts";
 
   return (
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`} id="sidebar">
@@ -175,6 +176,27 @@ export default function Sidebar() {
             </span>
             <span className="nav-label">Runs & Library</span>
             <span className="nav-count">{runsCount ?? 0}</span>
+          </Link>
+          <Link href="/accounts" className={navClass(isAccounts)} title="Connected Accounts">
+            <span className="nav-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M10 14a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1 1"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M14 10a5 5 0 0 0-7.07 0l-2 2a5 5 0 0 0 7.07 7.07l1-1"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <span className="nav-label">Connected Accounts</span>
           </Link>
         </nav>
       </div>

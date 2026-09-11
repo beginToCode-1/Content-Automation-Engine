@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import YouTubeAccountPicker from "@/components/YouTubeAccountPicker";
 import { apiFetch, platformsFromStr, type ScheduleEntry } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -14,6 +15,7 @@ export default function SchedulePage() {
 
   const [topic, setTopic] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube"]);
+  const [youtubeAccountId, setYoutubeAccountId] = useState<string | null>(null);
   const [recurrence, setRecurrence] = useState<"once" | "daily">("once");
   const [scheduledTime, setScheduledTime] = useState("");
   const [dailyTime, setDailyTime] = useState("");
@@ -63,6 +65,7 @@ export default function SchedulePage() {
           platforms,
           scheduled_time: recurrence === "once" ? scheduledTime : null,
           daily_time: recurrence === "daily" ? dailyTime : null,
+          youtube_account_id: platforms.includes("youtube") ? youtubeAccountId : undefined,
         }),
       });
       setStatusText("");
@@ -164,6 +167,7 @@ export default function SchedulePage() {
                 <span className="icon-badge icon-tt">TT</span> TikTok
               </label>
             </div>
+            <YouTubeAccountPicker platforms={platforms} value={youtubeAccountId} onChange={setYoutubeAccountId} />
           </div>
 
           <div className="field">
