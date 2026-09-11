@@ -15,6 +15,9 @@ _ADDITIVE_COLUMNS = [
     ("runs", "source_type", "TEXT"),
     ("runs", "video_rank", "INTEGER"),
     ("runs", "clip_rank", "INTEGER"),
+    ("runs", "user_id", "TEXT REFERENCES users(id)"),
+    ("run_batches", "user_id", "TEXT REFERENCES users(id)"),
+    ("scheduled_topics", "user_id", "TEXT REFERENCES users(id)"),
 ]
 
 
@@ -35,6 +38,9 @@ def _apply_additive_migrations(conn: sqlite3.Connection) -> None:
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_batch ON runs(batch_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_scheduled_upload ON runs(scheduled_upload_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_batches_user ON run_batches(user_id, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_schedules_user ON scheduled_topics(user_id)")
 
 
 def init_db(db_path: Path) -> None:

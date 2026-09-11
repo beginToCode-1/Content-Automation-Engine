@@ -58,6 +58,7 @@ def submit_run(
     privacy_override: str | None = None,
     schedule_id: int | None = None,
     force_private: bool = False,
+    user_id: str | None = None,
 ) -> str:
     if _executor is None:
         raise RuntimeError("executor not initialized - call init_executor() first")
@@ -72,6 +73,7 @@ def submit_run(
         dry_run=dry_run,
         requested_privacy=privacy_override,
         schedule_id=schedule_id,
+        user_id=user_id,
     )
     future = _executor.submit(
         _execute, settings, run_id, topic, dry_run, privacy_override, target_platforms, force_private

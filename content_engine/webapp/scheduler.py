@@ -49,6 +49,7 @@ async def _poll_once(settings: Settings) -> None:
             privacy_override=None,
             schedule_id=entry["id"],
             force_private=True,  # hardcoded literal - never derived from schedule data, by design
+            user_id=entry["user_id"],
         )
         await asyncio.to_thread(schedules_repo.mark_triggered, settings.db_path, entry["id"], run_id, now)
         if entry["recurrence"] == "once":

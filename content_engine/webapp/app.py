@@ -11,13 +11,13 @@ from content_engine.db.connection import init_db
 from content_engine.db import runs_repo, uploads_repo
 from content_engine.webapp import executor, scheduler
 from content_engine.webapp.routes import (
+    api_auth,
     api_batches,
     api_meta,
     api_runs,
     api_schedule,
     api_self_upload,
     media,
-    pages,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -60,7 +60,12 @@ def create_app() -> FastAPI:
     def health():
         return {"status": "ok"}
 
-    app.include_router(pages.router)
+    # The old server-rendered Jinja dashboard (content_engine/webapp/routes/pages.py)
+    # is intentionally NOT mounted here: it queried the DB directly with no auth
+    # at all, which would leak every user's runs/batches/schedules to anyone who
+    # hit this backend's URL now that the real UI (web/, on Vercel) requires
+    # login. The Next.js frontend fully replaces it, including /privacy and /terms.
+    app.include_router(api_auth.router)
     app.include_router(api_runs.router)
     app.include_router(api_schedule.router)
     app.include_router(api_batches.router)

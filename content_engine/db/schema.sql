@@ -1,5 +1,14 @@
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','viewer')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id),
     topic TEXT NOT NULL,
     trigger_source TEXT NOT NULL CHECK(trigger_source IN ('cli','web','scheduled')),
     schedule_id INTEGER REFERENCES scheduled_topics(id),
@@ -54,6 +63,7 @@ CREATE TABLE IF NOT EXISTS run_uploads (
 
 CREATE TABLE IF NOT EXISTS scheduled_topics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT REFERENCES users(id),
     topic TEXT NOT NULL,
     recurrence TEXT NOT NULL DEFAULT 'once' CHECK(recurrence IN ('once','daily')),
     scheduled_time TEXT,
@@ -69,6 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_schedules_status ON scheduled_topics(status);
 
 CREATE TABLE IF NOT EXISTS run_batches (
     batch_id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id),
     topic TEXT NOT NULL,
     target_platforms TEXT NOT NULL,
     videos_count INTEGER NOT NULL,

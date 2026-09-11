@@ -14,6 +14,11 @@ def get_clip(run_id: str, settings: Settings = Depends(get_settings)):
     # rather than via the runs DB: this must work for CLI-triggered runs (which never
     # touch the DB) and must be fetchable by Instagram mid-run, before the DB row's
     # clip_path field is written back (that only happens after the whole run finishes).
+    # Deliberately NOT behind get_current_user, even though every other route now
+    # requires auth: Instagram's own servers fetch this URL directly with no
+    # Authorization header. The run_id (10 random hex chars) is the only guard -
+    # unchanged from before auth existed, so this isn't a new exposure, just one
+    # that's now worth calling out explicitly.
     work_dir = settings.work_dir.resolve()
     clip_path = (work_dir / run_id / CLIP_FILENAME).resolve()
 

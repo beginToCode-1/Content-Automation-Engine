@@ -8,11 +8,19 @@ from starlette.concurrency import run_in_threadpool
 from content_engine.config import Settings
 from content_engine.db import runs_repo, uploads_repo
 from content_engine.webapp import executor
-from content_engine.webapp.deps import get_settings
+from content_engine.webapp.deps import get_current_user, get_settings, require_admin
 
 router = APIRouter(prefix="/api")
 
 VALID_PLATFORMS = {"youtube", "instagram", "tiktok"}
+
+
+def _ensure_owned(run: dict | None, user: dict) -> dict:
+    """404s (never 403) when the run doesn't exist OR belongs to someone else -
+    a 403 would leak that the run_id exists at all to a user who can't see it."""
+    if run is None or run["user_id"] != user["id"]:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
 
 
 class NewRunRequest(BaseModel):
@@ -23,7 +31,9 @@ class NewRunRequest(BaseModel):
 
 
 @router.post("/runs", status_code=202)
-async def create_run(payload: NewRunRequest, settings: Settings = Depends(get_settings)):
+async def create_run(
+    payload: NewRunRequest, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+):
     topic = payload.topic.strip()
     if not topic:
         raise HTTPException(status_code=400, detail="topic is required")
@@ -43,28 +53,39 @@ async def create_run(payload: NewRunRequest, settings: Settings = Depends(get_se
         target_platforms=platforms,
         dry_run=dry_run,
         privacy_override=payload.privacy,
+        user_id=user["id"],
     )
     return {"run_id": run_id}
 
 
 @router.get("/runs")
-async def list_runs(limit: int = 20, settings: Settings = Depends(get_settings)):
-    runs = await run_in_threadpool(runs_repo.list_recent, settings.db_path, limit)
+async def list_runs(
+    limit: int = 20, settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
+):
+    runs = await run_in_threadpool(runs_repo.list_recent, settings.db_path, limit, user["id"])
     return {"runs": runs}
 
 
 @router.get("/runs/{run_id}")
-async def get_run_status(run_id: str, since_id: int = 0, settings: Settings = Depends(get_settings)):
+async def get_run_status(
+    run_id: str,
+    since_id: int = 0,
+    settings: Settings = Depends(get_settings),
+    user: dict = Depends(get_current_user),
+):
     run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    _ensure_owned(run, user)
     events = await run_in_threadpool(runs_repo.list_events_since, settings.db_path, run_id, since_id)
     uploads = await run_in_threadpool(uploads_repo.list_uploads_for_run, settings.db_path, run_id)
     return {"run": run, "events": events, "uploads": uploads}
 
 
 @router.post("/runs/{run_id}/cancel")
-async def cancel_run(run_id: str, settings: Settings = Depends(get_settings)):
+async def cancel_run(
+    run_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+):
+    run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
+    _ensure_owned(run, user)
     cancelled = await run_in_threadpool(executor.cancel_run, settings, run_id)
     if not cancelled:
         raise HTTPException(
@@ -74,10 +95,11 @@ async def cancel_run(run_id: str, settings: Settings = Depends(get_settings)):
 
 
 @router.post("/runs/{run_id}/retry", status_code=202)
-async def retry_run(run_id: str, settings: Settings = Depends(get_settings)):
+async def retry_run(
+    run_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+):
     run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    _ensure_owned(run, user)
     if run["status"] != "failed":
         raise HTTPException(status_code=409, detail="Only failed runs can be retried")
 
@@ -115,15 +137,17 @@ async def retry_run(run_id: str, settings: Settings = Depends(get_settings)):
         target_platforms=platforms,
         dry_run=False,
         privacy_override=privacy,
+        user_id=user["id"],
     )
     return {"run_id": new_run_id}
 
 
 @router.post("/runs/{run_id}/cancel-upload")
-async def cancel_scheduled_upload(run_id: str, settings: Settings = Depends(get_settings)):
+async def cancel_scheduled_upload(
+    run_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+):
     run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
+    _ensure_owned(run, user)
     if not run.get("scheduled_upload_at"):
         raise HTTPException(status_code=409, detail="This run has no pending scheduled upload")
 

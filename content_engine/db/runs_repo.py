@@ -13,10 +13,13 @@ def platforms_from_str(value: str) -> list[str]:
     return [p for p in value.split(",") if p]
 
 
-def count_all(db_path: Path) -> int:
+def count_all(db_path: Path, user_id: str | None = None) -> int:
     conn = get_connection(db_path)
     try:
-        row = conn.execute("SELECT COUNT(*) AS n FROM runs").fetchone()
+        if user_id is None:
+            row = conn.execute("SELECT COUNT(*) AS n FROM runs").fetchone()
+        else:
+            row = conn.execute("SELECT COUNT(*) AS n FROM runs WHERE user_id=?", (user_id,)).fetchone()
         return row["n"]
     finally:
         conn.close()
@@ -32,18 +35,20 @@ def insert_run(
     requested_privacy: str | None = None,
     schedule_id: int | None = None,
     work_dir: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     conn = get_connection(db_path)
     try:
         conn.execute(
             """
             INSERT INTO runs (
-                run_id, topic, trigger_source, schedule_id, status,
+                run_id, user_id, topic, trigger_source, schedule_id, status,
                 dry_run, requested_privacy, target_platforms, work_dir
-            ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
             """,
             (
                 run_id,
+                user_id,
                 topic,
                 trigger_source,
                 schedule_id,
@@ -137,12 +142,17 @@ def get_run(db_path: Path, run_id: str) -> dict | None:
         conn.close()
 
 
-def list_recent(db_path: Path, limit: int = 20) -> list[dict]:
+def list_recent(db_path: Path, limit: int = 20, user_id: str | None = None) -> list[dict]:
     conn = get_connection(db_path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if user_id is None:
+            rows = conn.execute(
+                "SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE user_id=? ORDER BY created_at DESC LIMIT ?", (user_id, limit)
+            ).fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()

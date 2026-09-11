@@ -12,18 +12,20 @@ def insert_batch(
     clips_per_video: int,
     stagger_gap_minutes: int,
     requested_privacy: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     conn = get_connection(db_path)
     try:
         conn.execute(
             """
             INSERT INTO run_batches (
-                batch_id, topic, target_platforms, videos_count, clips_per_video,
+                batch_id, user_id, topic, target_platforms, videos_count, clips_per_video,
                 stagger_gap_minutes, requested_privacy
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 batch_id,
+                user_id,
                 topic,
                 ",".join(target_platforms),
                 videos_count,
@@ -62,12 +64,17 @@ def get_batch(db_path: Path, batch_id: str) -> dict | None:
         conn.close()
 
 
-def list_recent_batches(db_path: Path, limit: int = 20) -> list[dict]:
+def list_recent_batches(db_path: Path, limit: int = 20, user_id: str | None = None) -> list[dict]:
     conn = get_connection(db_path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM run_batches ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if user_id is None:
+            rows = conn.execute(
+                "SELECT * FROM run_batches ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM run_batches WHERE user_id=? ORDER BY created_at DESC LIMIT ?", (user_id, limit)
+            ).fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()

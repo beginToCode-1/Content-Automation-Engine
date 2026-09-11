@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from content_engine.config import Settings
 from content_engine.db import schedules_repo
-from content_engine.webapp.deps import get_settings
+from content_engine.webapp.deps import get_current_user, get_settings, require_admin
 
 router = APIRouter(prefix="/api")
 
@@ -22,7 +22,9 @@ class NewScheduleRequest(BaseModel):
 
 
 @router.post("/schedule", status_code=201)
-async def create_schedule(payload: NewScheduleRequest, settings: Settings = Depends(get_settings)):
+async def create_schedule(
+    payload: NewScheduleRequest, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+):
     topic = payload.topic.strip()
     if not topic:
         raise HTTPException(status_code=400, detail="topic is required")
@@ -52,16 +54,21 @@ async def create_schedule(payload: NewScheduleRequest, settings: Settings = Depe
         payload.platforms or ["youtube"],
         scheduled_time=scheduled_time_iso,
         daily_time=daily_time,
+        user_id=user["id"],
     )
     return {"id": schedule_id}
 
 
 @router.get("/schedule")
-async def list_schedules(settings: Settings = Depends(get_settings)):
-    return {"schedules": schedules_repo.list_active(settings.db_path)}
+async def list_schedules(settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)):
+    return {"schedules": schedules_repo.list_active(settings.db_path, user["id"])}
 
 
 @router.post("/schedule/{schedule_id}/cancel")
-async def cancel_schedule(schedule_id: int, settings: Settings = Depends(get_settings)):
-    schedules_repo.cancel(settings.db_path, schedule_id)
+async def cancel_schedule(
+    schedule_id: int, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+):
+    cancelled = schedules_repo.cancel(settings.db_path, schedule_id, user["id"])
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="Schedule not found")
     return {"cancelled": True}

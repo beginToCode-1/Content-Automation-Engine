@@ -27,6 +27,8 @@ services:
         value: "30"
       - key: CORS_ALLOW_ORIGINS
         sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
       - key: INSTAGRAM_ACCESS_TOKEN
         sync: false
       - key: INSTAGRAM_BUSINESS_ACCOUNT_ID

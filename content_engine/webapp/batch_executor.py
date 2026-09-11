@@ -21,6 +21,7 @@ def submit_batch(
     clips_per_video: int,
     stagger_gap_minutes: int,
     privacy_override: str | None = None,
+    user_id: str | None = None,
 ) -> str:
     batch_id = uuid.uuid4().hex[:10]
     batches_repo.insert_batch(
@@ -32,6 +33,7 @@ def submit_batch(
         clips_per_video,
         stagger_gap_minutes,
         requested_privacy=privacy_override,
+        user_id=user_id,
     )
     executor.run_in_background(
         _execute_batch,
@@ -43,6 +45,7 @@ def submit_batch(
         clips_per_video,
         stagger_gap_minutes,
         privacy_override,
+        user_id,
     )
     return batch_id
 
@@ -56,6 +59,7 @@ def _execute_batch(
     clips_per_video: int,
     stagger_gap_minutes: int,
     privacy_override: str | None,
+    user_id: str | None = None,
 ) -> None:
     effective_privacy = privacy_override or settings.upload_privacy_status
     clip_index = 0
@@ -79,6 +83,7 @@ def _execute_batch(
             dry_run=False,
             requested_privacy=privacy_override,
             work_dir=str(clip.work_dir),
+            user_id=user_id,
         )
         runs_repo.mark_running(settings.db_path, clip.run_id)
         runs_repo.update_fields(

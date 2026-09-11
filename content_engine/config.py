@@ -48,6 +48,8 @@ class Settings:
     smtp_password: str | None
     smtp_from_address: str | None
 
+    jwt_secret_key: str = ""
+
     cors_allow_origins: list[str] = field(default_factory=list)
 
     @classmethod
@@ -74,6 +76,13 @@ class Settings:
         tiktok_token_path = PROJECT_ROOT / "config" / "tiktok_token.json"
 
         db_path = PROJECT_ROOT / os.getenv("DB_PATH", "content_engine.db")
+
+        jwt_secret_key = os.getenv("JWT_SECRET_KEY", "").strip()
+        if not jwt_secret_key:
+            raise ConfigError(
+                "JWT_SECRET_KEY is not set. Generate one with "
+                "`python -c \"import secrets; print(secrets.token_hex(32))\"` and add it to .env."
+            )
 
         return cls(
             gemini_api_key=gemini_api_key,
@@ -118,4 +127,5 @@ class Settings:
             smtp_username=(os.getenv("SMTP_USERNAME", "").strip() or None),
             smtp_password=(os.getenv("SMTP_PASSWORD", "").strip() or None),
             smtp_from_address=(os.getenv("SMTP_FROM_ADDRESS", "").strip() or None),
+            jwt_secret_key=jwt_secret_key,
         )

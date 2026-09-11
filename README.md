@@ -128,6 +128,29 @@ Then fill in `.env`:
   `SCHEDULER_POLL_INTERVAL_S` - dashboard settings, sensible defaults provided.
 - `INSTAGRAM_*` / `TIKTOK_*` - optional, only needed if you want those platforms.
   See the Instagram/TikTok setup sections above.
+- `JWT_SECRET_KEY` - required, signs login sessions. Generate one with
+  `python -c "import secrets; print(secrets.token_hex(32))"` - never reuse the
+  same value across environments, and never commit a real one.
+
+### Authentication and roles
+
+Every API route except `/api/auth/register`, `/api/auth/login`, `/api/health`,
+and the media file endpoint requires a logged-in user. There is no separate
+admin-invite flow: **the first account ever registered on a given database
+becomes `admin`**; every account after that defaults to `viewer`. Register
+the first (admin) account for yourself immediately after deploying, before
+sharing the URL with anyone else.
+
+- **admin** - full access: start runs/batches, manage schedules, retry/cancel,
+  self-upload and publish.
+- **viewer** - read-only: browse run/batch/schedule history, watch clips,
+  inspect metadata. Cannot trigger anything that costs API quota or publishes
+  content.
+
+Data is per-user: each account only sees the runs/batches/schedules it
+created, regardless of role. There's no cross-user visibility (an admin
+doesn't see a viewer's data or vice versa) and no promotion/demotion UI - that
+requires editing the `users` table's `role` column directly.
 
 ## 2. Verifying setup
 

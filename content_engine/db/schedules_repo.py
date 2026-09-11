@@ -11,15 +11,16 @@ def insert_schedule(
     target_platforms: list[str],
     scheduled_time: str | None = None,
     daily_time: str | None = None,
+    user_id: str | None = None,
 ) -> int:
     conn = get_connection(db_path)
     try:
         cursor = conn.execute(
             """
-            INSERT INTO scheduled_topics (topic, recurrence, scheduled_time, daily_time, target_platforms)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO scheduled_topics (user_id, topic, recurrence, scheduled_time, daily_time, target_platforms)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (topic, recurrence, scheduled_time, daily_time, ",".join(target_platforms)),
+            (user_id, topic, recurrence, scheduled_time, daily_time, ",".join(target_platforms)),
         )
         conn.commit()
         return cursor.lastrowid
@@ -27,12 +28,18 @@ def insert_schedule(
         conn.close()
 
 
-def list_active(db_path: Path) -> list[dict]:
+def list_active(db_path: Path, user_id: str | None = None) -> list[dict]:
     conn = get_connection(db_path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM scheduled_topics WHERE status != 'cancelled' ORDER BY created_at DESC"
-        ).fetchall()
+        if user_id is None:
+            rows = conn.execute(
+                "SELECT * FROM scheduled_topics WHERE status != 'cancelled' ORDER BY created_at DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM scheduled_topics WHERE status != 'cancelled' AND user_id=? ORDER BY created_at DESC",
+                (user_id,),
+            ).fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()
@@ -89,10 +96,19 @@ def mark_completed(db_path: Path, schedule_id: int) -> None:
         conn.close()
 
 
-def cancel(db_path: Path, schedule_id: int) -> None:
+def cancel(db_path: Path, schedule_id: int, user_id: str | None = None) -> bool:
+    """Returns False (no-op) if schedule_id doesn't exist or belongs to a
+    different user_id - callers scoping by user should treat False as a 404,
+    not a 500, to avoid leaking whether another user's schedule exists."""
     conn = get_connection(db_path)
     try:
-        conn.execute("UPDATE scheduled_topics SET status='cancelled' WHERE id=?", (schedule_id,))
+        if user_id is None:
+            cursor = conn.execute("UPDATE scheduled_topics SET status='cancelled' WHERE id=?", (schedule_id,))
+        else:
+            cursor = conn.execute(
+                "UPDATE scheduled_topics SET status='cancelled' WHERE id=? AND user_id=?", (schedule_id, user_id)
+            )
         conn.commit()
+        return cursor.rowcount > 0
     finally:
         conn.close()

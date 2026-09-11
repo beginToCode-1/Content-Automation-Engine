@@ -14,7 +14,7 @@ from content_engine.models import ClipMetadata
 from content_engine.pipeline import upload_clip_to_platforms
 from content_engine.render.clip_builder import CLIP_FILENAME
 from content_engine.webapp import executor
-from content_engine.webapp.deps import get_settings
+from content_engine.webapp.deps import get_settings, require_admin
 from content_engine.webapp.routes.api_runs import VALID_PLATFORMS
 
 router = APIRouter(prefix="/api")
@@ -25,6 +25,7 @@ async def create_draft(
     file: UploadFile = File(...),
     hint: str = Form(...),
     settings: Settings = Depends(get_settings),
+    user: dict = Depends(require_admin),
 ):
     filename = file.filename or ""
     if not filename.lower().endswith(".mp4"):
@@ -72,7 +73,12 @@ class PublishDraftRequest(BaseModel):
 
 
 @router.post("/self-upload/{draft_id}/publish", status_code=202)
-async def publish_draft(draft_id: str, payload: PublishDraftRequest, settings: Settings = Depends(get_settings)):
+async def publish_draft(
+    draft_id: str,
+    payload: PublishDraftRequest,
+    settings: Settings = Depends(get_settings),
+    user: dict = Depends(require_admin),
+):
     draft_dir = settings.work_dir / draft_id
     clip_path = draft_dir / CLIP_FILENAME
     if not clip_path.exists():
@@ -103,6 +109,7 @@ async def publish_draft(draft_id: str, payload: PublishDraftRequest, settings: S
         payload.privacy,
         None,
         str(draft_dir),
+        user["id"],
     )
     await run_in_threadpool(
         runs_repo.update_fields,
