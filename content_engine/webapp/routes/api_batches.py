@@ -20,6 +20,14 @@ class NewBatchRequest(BaseModel):
     privacy: str | None = None
 
 
+@router.get("/batches")
+async def list_batches(limit: int = 20, settings: Settings = Depends(get_settings)):
+    batches = await run_in_threadpool(batches_repo.list_recent_batches, settings.db_path, limit)
+    for batch in batches:
+        batch["platforms"] = runs_repo.platforms_from_str(batch["target_platforms"])
+    return {"batches": batches}
+
+
 @router.post("/batches", status_code=202)
 async def create_batch(payload: NewBatchRequest, settings: Settings = Depends(get_settings)):
     topic = payload.topic.strip()
