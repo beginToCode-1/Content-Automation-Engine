@@ -1,3 +1,5 @@
+import logging
+
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
@@ -8,6 +10,8 @@ from content_engine.config import Settings
 from content_engine.db import connected_accounts_repo
 from content_engine.errors import ConfigError
 from content_engine.webapp.deps import get_current_user, get_settings
+
+logger = logging.getLogger("content_engine.webapp.routes.api_oauth")
 
 router = APIRouter(prefix="/api")
 
@@ -60,6 +64,7 @@ async def youtube_callback(
         creds = google_oauth.exchange_code_for_credentials(settings, code)
         channel_id, channel_title = google_oauth.fetch_channel_info(creds)
     except Exception:
+        logger.exception("YouTube connect failed for user_id=%s", user_id)
         return RedirectResponse(_frontend_redirect(settings, "/accounts?error=connect_failed"), status_code=302)
 
     connected_accounts_repo.upsert_account(
