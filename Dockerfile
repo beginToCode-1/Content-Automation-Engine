@@ -11,10 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /data/work /app/config
+RUN mkdir -p /app/work /app/config
 
-ENV WORK_DIR=/data/work
-ENV DB_PATH=/data/content_engine.db
+# Defaults to the image's own (ephemeral) filesystem. Override WORK_DIR/DB_PATH
+# to an absolute path under a mounted volume (e.g. /data/work) once you attach
+# persistent storage - see render.yaml / README's deployment section.
 
 EXPOSE 8000
 

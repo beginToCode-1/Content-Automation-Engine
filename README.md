@@ -203,9 +203,20 @@ A `Dockerfile` (installs `ffmpeg`) and `render.yaml` blueprint are included at t
 repo root.
 
 **Render**: Dashboard -> New -> Blueprint -> pick this repo -> it reads
-`render.yaml` automatically (a Docker web service with a 5GB persistent disk
-mounted at `/data`, health check at `/api/health`). Fill in the `sync: false`
-env vars it prompts for (`GEMINI_API_KEY` at minimum). Under **Settings -> Environment**, upload `config/client_secret.json` (and, after first OAuth login through the deployed app, `config/token.json`) as **Secret Files** - the app reads them from `config/` at runtime and they're gitignored, so they must be uploaded directly through the host's dashboard, not committed.
+`render.yaml` automatically (a Docker web service on the **free** plan, health
+check at `/api/health`). Fill in the `sync: false` env vars it prompts for
+(`GEMINI_API_KEY` at minimum). Under **Settings -> Environment**, upload
+`config/client_secret.json` and `config/token.json` as **Secret Files** - the
+app reads them from `config/` at runtime and they're gitignored, so they must
+be uploaded directly through the host's dashboard, not committed.
+
+The free plan has no persistent disk: `work/` and the SQLite DB live in the
+container's own ephemeral filesystem and reset on every restart/redeploy, and
+the instance spins down after 15 minutes idle (a ~30-60s cold start on the
+next request). Fine for trying the deploy out. For real ongoing use, upgrade
+the service to a paid plan, attach a Render **Disk** mounted at `/data`, and
+set `WORK_DIR=/data/work` / `DB_PATH=/data/content_engine.db` so runs and
+history actually persist.
 
 **Railway**: New Project -> Deploy from GitHub repo -> it detects the `Dockerfile`.
 Add a **Volume** mounted at `/data`. Set the same env vars as above, plus
