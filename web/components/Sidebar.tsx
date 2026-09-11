@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch, type Channel } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 function navClass(active: boolean): string {
   return active ? "active" : "";
@@ -11,11 +12,16 @@ function navClass(active: boolean): string {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [runsCount, setRunsCount] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
+    // /api/meta requires auth now - nothing to show until AuthProvider has
+    // validated a token and populated `user`.
+    if (!user) return;
     let cancelled = false;
     apiFetch<{ channels: Channel[]; runs_count: number }>("/api/meta")
       .then((data) => {
@@ -29,7 +35,12 @@ export default function Sidebar() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
+
+  function handleLogout() {
+    logout();
+    router.push("/login");
+  }
 
   useEffect(() => {
     // Reads a browser-only API (localStorage) that has no server-side
@@ -185,6 +196,62 @@ export default function Sidebar() {
           ))}
         </div>
       </div>
+
+      {user && (
+        <div style={{ marginTop: "auto" }}>
+          {!collapsed && <div className="sidebar-section-label">Account</div>}
+          <div
+            style={{
+              padding: "0 10px",
+              display: "flex",
+              flexDirection: collapsed ? "column" : "row",
+              alignItems: collapsed ? "center" : "flex-start",
+              justifyContent: "space-between",
+              gap: 8,
+              minWidth: 0,
+            }}
+          >
+            {!collapsed && (
+              <div style={{ minWidth: 0 }}>
+                <div
+                  className="brand-title"
+                  style={{ fontSize: "0.8rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={user.email}
+                >
+                  {user.email}
+                </div>
+                <div className="brand-subtitle" style={{ textTransform: "capitalize" }}>
+                  {user.role}
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              className={collapsed ? "btn-icon" : "btn-secondary"}
+              title={collapsed ? `Log out (${user.email})` : undefined}
+              aria-label="Log out"
+              onClick={handleLogout}
+              style={collapsed ? undefined : { flexShrink: 0 }}
+            >
+              {collapsed ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <polyline points="16,17 21,12 16,7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              ) : (
+                "Log out"
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

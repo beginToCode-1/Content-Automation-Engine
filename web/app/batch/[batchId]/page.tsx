@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { apiFetch, apiUrl, platformsFromStr, type Batch, type BatchClip, type BatchDetailResponse } from "@/lib/api";
+import { apiFetch, platformsFromStr, type Batch, type BatchClip, type BatchDetailResponse } from "@/lib/api";
 
 export default function BatchDetailPage() {
   const params = useParams<{ batchId: string }>();
@@ -22,15 +22,12 @@ export default function BatchDetailPage() {
 
     async function poll() {
       try {
-        const res = await fetch(apiUrl(`/api/batches/${batchId}`));
-        if (res.ok) {
-          const data: BatchDetailResponse = await res.json();
-          if (cancelled) return;
-          setBatch(data.batch);
-          if (data.clips.length) setClips(data.clips);
-          if (data.batch.status !== "running") {
-            return;
-          }
+        const data = await apiFetch<BatchDetailResponse>(`/api/batches/${batchId}`);
+        if (cancelled) return;
+        setBatch(data.batch);
+        if (data.clips.length) setClips(data.clips);
+        if (data.batch.status !== "running") {
+          return;
         }
       } catch {
         // transient network error - keep polling

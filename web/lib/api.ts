@@ -32,9 +32,64 @@ async function parseErrorDetail(res: Response): Promise<string> {
   return res.statusText;
 }
 
+// ---------- Auth token plumbing ----------
+//
+// Every backend route except /api/auth/register, /api/auth/login, /api/health,
+// and /media/* now requires "Authorization: Bearer <jwt>". The token is held
+// here as a module-level variable, read synchronously by every apiFetch()
+// call (the sole place a request leaves this app - every page/component that
+// used to call fetch(apiUrl(...)) directly now goes through apiFetch() too,
+// specifically so this is the only place that needs to know about auth), and
+// mirrored into localStorage so a page refresh doesn't lose it. lib/auth.tsx's
+// AuthProvider is the only thing that calls setAuthToken() - components should
+// go through its useAuth() hook instead of touching this module directly.
+const TOKEN_STORAGE_KEY = "auth_token";
+
+let authToken: string | null =
+  typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_STORAGE_KEY) : null;
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+  if (typeof window === "undefined") return;
+  try {
+    if (token) {
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // localStorage unavailable (private browsing, etc.) - token still held in memory for this tab.
+  }
+}
+
+// AuthProvider registers a callback here so a 401 received mid-session (an
+// expired token, 7-day TTL) can clear auth state and bounce to /login from
+// wherever apiFetch happens to be called, without every call site having to
+// handle that itself. Only fires when a request that *had* a token comes back
+// 401 - a plain wrong-password 401 from /api/auth/login has no token to begin
+// with, so it flows back to the caller as a normal ApiError instead.
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(apiUrl(path), init);
+  const headers = new Headers(init?.headers);
+  if (authToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${authToken}`);
+  }
+  const res = await fetch(apiUrl(path), { ...init, headers });
   if (!res.ok) {
+    if (res.status === 401) {
+      const hadToken = !!authToken;
+      setAuthToken(null);
+      if (hadToken && onUnauthorized) onUnauthorized();
+    }
     throw new ApiError(res.status, await parseErrorDetail(res));
   }
   return (await res.json()) as T;

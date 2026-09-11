@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { apiUrl } from "@/lib/api";
+import { apiFetch, type Run } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const STAGE_STEPS = [
   { key: "search", label: "Sourcing and Selecting Video" },
@@ -43,6 +44,8 @@ interface RunEventLite {
 }
 
 export default function StudioPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [topic, setTopic] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube"]);
   const [mode, setMode] = useState("generate_and_upload");
@@ -82,44 +85,43 @@ export default function StudioPage() {
     async function poll() {
       if (activeRunIdRef.current !== runId) return;
       try {
-        const res = await fetch(apiUrl(`/api/runs/${runId}?since_id=${sinceIdRef.current}`));
-        if (res.ok) {
-          const data = await res.json();
-          for (const event of data.events as RunEventLite[]) {
-            sinceIdRef.current = Math.max(sinceIdRef.current, event.id);
-          }
-
-          const idx = stageIndexForKey(data.run.current_stage);
-          const effectiveIdx = idx === -1 ? 0 : idx;
-          setHighestIdx(effectiveIdx);
-          setRunStatus(data.run.status);
-
-          if (data.run.status === "succeeded") {
-            setPreviewNode(
-              <>
-                Run complete.{" "}
-                <Link href={`/runs/${runId}`}>
-                  View full run {CHEVRON_ICON}
-                </Link>
-              </>
-            );
-            setIdle(true);
-            return;
-          }
-          if (data.run.status === "failed") {
-            setPreviewNode(
-              <>
-                Run failed: {data.run.error_message || "see run detail"}.{" "}
-                <Link href={`/runs/${runId}`}>
-                  View full run {CHEVRON_ICON}
-                </Link>
-              </>
-            );
-            setIdle(true);
-            return;
-          }
-          setPreviewNode("Rendering vertical short-form preview.");
+        const data = await apiFetch<{ run: Run; events: RunEventLite[] }>(
+          `/api/runs/${runId}?since_id=${sinceIdRef.current}`
+        );
+        for (const event of data.events) {
+          sinceIdRef.current = Math.max(sinceIdRef.current, event.id);
         }
+
+        const idx = stageIndexForKey(data.run.current_stage);
+        const effectiveIdx = idx === -1 ? 0 : idx;
+        setHighestIdx(effectiveIdx);
+        setRunStatus(data.run.status as "pending" | "running" | "succeeded" | "failed");
+
+        if (data.run.status === "succeeded") {
+          setPreviewNode(
+            <>
+              Run complete.{" "}
+              <Link href={`/runs/${runId}`}>
+                View full run {CHEVRON_ICON}
+              </Link>
+            </>
+          );
+          setIdle(true);
+          return;
+        }
+        if (data.run.status === "failed") {
+          setPreviewNode(
+            <>
+              Run failed: {data.run.error_message || "see run detail"}.{" "}
+              <Link href={`/runs/${runId}`}>
+                View full run {CHEVRON_ICON}
+              </Link>
+            </>
+          );
+          setIdle(true);
+          return;
+        }
+        setPreviewNode("Rendering vertical short-form preview.");
       } catch {
         // transient network error - keep polling
       }
@@ -137,17 +139,11 @@ export default function StudioPage() {
     setStatusText("Starting.");
     setSubmitting(true);
     try {
-      const response = await fetch(apiUrl("/api/runs"), {
+      const data = await apiFetch<{ run_id: string }>("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, mode, platforms, privacy }),
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        setStatusText("Error: " + (err.detail || response.statusText));
-        return;
-      }
-      const data = await response.json();
       setStatusText("");
       startPolling(data.run_id, topic);
     } catch (e) {
@@ -169,6 +165,12 @@ export default function StudioPage() {
           <div className="panel-header">
             <h2>New Production Run</h2>
           </div>
+
+          {!isAdmin && (
+            <p className="note" style={{ marginBottom: 18 }}>
+              Admin access required to start a run. You can still track existing runs below and in Runs & Library.
+            </p>
+          )}
 
           <form id="new-run-form" onSubmit={handleSubmit}>
             <div className="field">
@@ -271,7 +273,12 @@ export default function StudioPage() {
               <div className="field-hint">Public goes live immediately once the run finishes uploading.</div>
             </div>
 
-            <button type="submit" className="btn-run" disabled={submitting}>
+            <button
+              type="submit"
+              className="btn-run"
+              disabled={submitting || !isAdmin}
+              title={isAdmin ? undefined : "Admin access required"}
+            >
               <span className="btn-run-inner" id="run-btn-inner">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                   <polygon points="6,4 20,12 6,20" fill="currentColor" />

@@ -4,12 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   apiFetch,
-  apiUrl,
   mediaUrl,
   type Run,
   type RunDetailResponse,
   type Upload,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 // Shared, reusable port of static/modals.js's three modals (clip preview,
 // metadata inspector, failure diagnostics with retry+poll). Exposes
@@ -66,6 +66,8 @@ function CopyField({ label, value }: { label: string; value: string }) {
 }
 
 export function useRunModals() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [state, setState] = useState<ModalState>({ kind: "closed" });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onResolvedRef = useRef<((run: Run) => void) | null>(null);
@@ -274,7 +276,7 @@ export function useRunModals() {
               No error recorded.
             </p>
           )}
-          {run.status === "failed" && (
+          {run.status === "failed" && isAdmin && (
             <>
               <button
                 type="button"
@@ -288,6 +290,9 @@ export function useRunModals() {
                 {retryStatus}
               </div>
             </>
+          )}
+          {run.status === "failed" && !isAdmin && (
+            <p className="field-hint">Admin access required to retry a failed run.</p>
           )}
         </div>
       );
@@ -331,7 +336,3 @@ function CopyAllButton({ text }: { text: string }) {
     </button>
   );
 }
-
-// Re-exported so callers don't need to import apiUrl separately when they
-// only need it for the modal's own requests.
-export { apiUrl };

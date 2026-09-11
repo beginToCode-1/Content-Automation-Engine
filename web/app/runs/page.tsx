@@ -6,10 +6,13 @@ import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import RelativeTime from "@/components/RelativeTime";
 import { useRunModals } from "@/components/modals/useRunModals";
-import { apiFetch, apiUrl, platformsFromStr, type Run, type RunsListResponse } from "@/lib/api";
+import { apiFetch, platformsFromStr, type Run, type RunsListResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function RunsLibraryPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -55,14 +58,7 @@ export default function RunsLibraryPage() {
   async function handleRetry(runId: string) {
     setRetryingId(runId);
     try {
-      const response = await fetch(apiUrl(`/api/runs/${runId}/retry`), { method: "POST" });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        alert("Retry failed: " + (err.detail || response.statusText));
-        setRetryingId(null);
-        return;
-      }
-      const data = await response.json();
+      const data = await apiFetch<{ run_id: string }>(`/api/runs/${runId}/retry`, { method: "POST" });
       router.push(`/runs/${data.run_id}`);
     } catch (e) {
       alert("Retry failed: " + (e instanceof Error ? e.message : String(e)));
@@ -216,7 +212,7 @@ export default function RunsLibraryPage() {
                             <path d="M9 13h6M9 17h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                           </svg>
                         </button>
-                        {run.status === "failed" && (
+                        {run.status === "failed" && isAdmin && (
                           <button
                             type="button"
                             className="btn-secondary btn-retry retry-btn"

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import AuthGate from "@/components/AuthGate";
 import Sidebar from "@/components/Sidebar";
+import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -41,17 +43,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
-        <div className="app-shell">
-          <Sidebar />
-          <div className="main-area">
-            <main className="container">{children}</main>
-            <footer className="site-footer">
-              <span>Content Engine</span>
-              <Link href="/privacy">Privacy Policy</Link>
-              <Link href="/terms">Terms of Service</Link>
-            </footer>
+        <AuthProvider>
+          <div className="app-shell">
+            <Sidebar />
+            <div className="main-area">
+              <main className="container">
+                <AuthGate>{children}</AuthGate>
+              </main>
+              <footer className="site-footer">
+                <span>Content Engine</span>
+                <Link href="/privacy">Privacy Policy</Link>
+                <Link href="/terms">Terms of Service</Link>
+              </footer>
+            </div>
           </div>
-        </div>
+        </AuthProvider>
       </body>
     </html>
   );

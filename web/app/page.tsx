@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
-import { apiUrl } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return bytes + " B";
@@ -26,6 +27,8 @@ function formatDuration(seconds: number): string | null {
 
 export default function SelfUploadPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileMeta, setFileMeta] = useState("");
@@ -92,13 +95,10 @@ export default function SelfUploadPage() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("hint", hint);
-      const response = await fetch(apiUrl("/api/self-upload/draft"), { method: "POST", body: formData });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        setDraftStatus("Error: " + (err.detail || response.statusText));
-        return;
-      }
-      const data = await response.json();
+      const data = await apiFetch<{
+        draft_id: string;
+        metadata: { title: string; description: string; hashtags: string[] };
+      }>("/api/self-upload/draft", { method: "POST", body: formData });
       setDraftId(data.draft_id);
       setTitle(data.metadata.title);
       setDescription(data.metadata.description);
@@ -133,17 +133,11 @@ export default function SelfUploadPage() {
     setPublishStatus("Publishing.");
     setPublishSubmitting(true);
     try {
-      const response = await fetch(apiUrl(`/api/self-upload/${draftId}/publish`), {
+      const data = await apiFetch<{ run_id: string }>(`/api/self-upload/${draftId}/publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, description, hashtags: hashtagList, platforms, privacy }),
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        setPublishStatus("Error: " + (err.detail || response.statusText));
-        return;
-      }
-      const data = await response.json();
       router.push(`/runs/${data.run_id}`);
     } catch (e) {
       setPublishStatus("Error: " + (e instanceof Error ? e.message : String(e)));
@@ -167,6 +161,12 @@ export default function SelfUploadPage() {
           publishes until you review and confirm on the next step.
         </span>
       </div>
+
+      {!isAdmin && (
+        <p className="note" style={{ marginBottom: 20 }}>
+          Admin access required to upload and publish videos. You can still browse run history from the sidebar.
+        </p>
+      )}
 
       <div className="panel form-panel" id="draft-panel">
         <div className="panel-header">
@@ -286,7 +286,12 @@ export default function SelfUploadPage() {
             <div className="field-hint">A short description used to generate the title, description, and hashtags.</div>
           </div>
 
-          <button type="submit" className="btn-run" disabled={draftSubmitting}>
+          <button
+            type="submit"
+            className="btn-run"
+            disabled={draftSubmitting || !isAdmin}
+            title={isAdmin ? undefined : "Admin access required"}
+          >
             <span className="btn-run-inner">Generate Draft</span>
           </button>
           <div id="draft-status" className="status-text">
@@ -406,7 +411,12 @@ export default function SelfUploadPage() {
               </div>
             </div>
 
-            <button type="submit" className="btn-run" disabled={publishSubmitting}>
+            <button
+              type="submit"
+              className="btn-run"
+              disabled={publishSubmitting || !isAdmin}
+              title={isAdmin ? undefined : "Admin access required"}
+            >
               <span className="btn-run-inner">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                   <polygon points="6,4 20,12 6,20" fill="currentColor" />

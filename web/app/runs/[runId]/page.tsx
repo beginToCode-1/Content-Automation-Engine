@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { apiFetch, apiUrl, mediaUrl, platformsFromStr, type Run, type RunDetailResponse, type RunEvent, type Upload } from "@/lib/api";
+import { apiFetch, mediaUrl, platformsFromStr, type Run, type RunDetailResponse, type RunEvent, type Upload } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function RunDetailPage() {
   const params = useParams<{ runId: string }>();
   const runId = params.runId;
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [run, setRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
@@ -47,35 +50,32 @@ export default function RunDetailPage() {
 
     async function poll() {
       try {
-        const response = await fetch(apiUrl(`/api/runs/${runId}?since_id=${sinceIdRef.current}`));
-        if (response.ok) {
-          const data: RunDetailResponse = await response.json();
-          if (!cancelled) {
-            setRun(data.run);
-            if (data.events.length) {
-              setEvents((prev) => [...prev, ...data.events]);
-              sinceIdRef.current = data.events.reduce((max, e) => Math.max(max, e.id), sinceIdRef.current);
-            }
+        const data = await apiFetch<RunDetailResponse>(`/api/runs/${runId}?since_id=${sinceIdRef.current}`);
+        if (!cancelled) {
+          setRun(data.run);
+          if (data.events.length) {
+            setEvents((prev) => [...prev, ...data.events]);
+            sinceIdRef.current = data.events.reduce((max, e) => Math.max(max, e.id), sinceIdRef.current);
+          }
 
-            if (
-              data.run.status !== lastStatusRef.current &&
-              (data.run.status === "succeeded" || data.run.status === "failed")
-            ) {
-              // The original reloads the whole page here (window.location.reload())
-              // so every server-rendered field picks up its final value. We port
-              // that as a full refetch of run+events+uploads instead of a hard
-              // reload, since this page has no server-rendered HTML to refresh.
-              const fresh = await apiFetch<RunDetailResponse>(`/api/runs/${runId}`);
-              if (!cancelled) {
-                setRun(fresh.run);
-                setEvents(fresh.events);
-                setUploads(fresh.uploads);
-              }
-              lastStatusRef.current = data.run.status;
-              return;
+          if (
+            data.run.status !== lastStatusRef.current &&
+            (data.run.status === "succeeded" || data.run.status === "failed")
+          ) {
+            // The original reloads the whole page here (window.location.reload())
+            // so every server-rendered field picks up its final value. We port
+            // that as a full refetch of run+events+uploads instead of a hard
+            // reload, since this page has no server-rendered HTML to refresh.
+            const fresh = await apiFetch<RunDetailResponse>(`/api/runs/${runId}`);
+            if (!cancelled) {
+              setRun(fresh.run);
+              setEvents(fresh.events);
+              setUploads(fresh.uploads);
             }
             lastStatusRef.current = data.run.status;
+            return;
           }
+          lastStatusRef.current = data.run.status;
         }
       } catch {
         // transient network error - keep polling
@@ -95,13 +95,13 @@ export default function RunDetailPage() {
   async function handleCancelUpload() {
     setCancelling(true);
     try {
-      const response = await fetch(apiUrl(`/api/runs/${runId}/cancel-upload`), { method: "POST" });
-      if (response.ok) {
-        const fresh = await apiFetch<RunDetailResponse>(`/api/runs/${runId}`);
-        setRun(fresh.run);
-        setEvents(fresh.events);
-        setUploads(fresh.uploads);
-      }
+      await apiFetch(`/api/runs/${runId}/cancel-upload`, { method: "POST" });
+      const fresh = await apiFetch<RunDetailResponse>(`/api/runs/${runId}`);
+      setRun(fresh.run);
+      setEvents(fresh.events);
+      setUploads(fresh.uploads);
+    } catch {
+      // matches the previous behavior: a failed cancel just leaves the run as-is
     } finally {
       setCancelling(false);
     }
@@ -164,15 +164,17 @@ export default function RunDetailPage() {
       {run.scheduled_upload_at && (
         <p className="note">
           Upload scheduled for {run.scheduled_upload_at}.
-          <button
-            type="button"
-            className="btn-secondary"
-            style={{ marginLeft: 10 }}
-            disabled={cancelling}
-            onClick={handleCancelUpload}
-          >
-            Cancel scheduled upload
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ marginLeft: 10 }}
+              disabled={cancelling}
+              onClick={handleCancelUpload}
+            >
+              Cancel scheduled upload
+            </button>
+          )}
         </p>
       )}
 

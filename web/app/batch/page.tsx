@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import RelativeTime from "@/components/RelativeTime";
-import { apiFetch, apiUrl, platformsFromStr, type Batch, type MetaResponse } from "@/lib/api";
+import { apiFetch, platformsFromStr, type Batch, type MetaResponse } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 // Fallback values used only until /api/meta's batch_defaults resolves (mirrors
 // config.py's own env-var defaults: BATCH_MAX_VIDEOS=5, BATCH_MAX_CLIPS_PER_VIDEO=5,
@@ -22,6 +23,8 @@ function formatOffset(totalMinutes: number): string {
 
 export default function BatchPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [topic, setTopic] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube"]);
   const [videosCount, setVideosCount] = useState(2);
@@ -95,7 +98,7 @@ export default function BatchPage() {
     setStatusText("Starting.");
     setSubmitting(true);
     try {
-      const response = await fetch(apiUrl("/api/batches"), {
+      const data = await apiFetch<{ batch_id: string }>("/api/batches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -107,12 +110,6 @@ export default function BatchPage() {
           privacy,
         }),
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        setStatusText("Error: " + (err.detail || response.statusText));
-        return;
-      }
-      const data = await response.json();
       router.push(`/batch/${data.batch_id}`);
     } catch (e) {
       setStatusText("Error: " + (e instanceof Error ? e.message : String(e)));
@@ -136,6 +133,12 @@ export default function BatchPage() {
           individual clip&apos;s scheduled upload from its own run page before it fires.
         </span>
       </div>
+
+      {!isAdmin && (
+        <p className="note" style={{ marginBottom: 20 }}>
+          Admin access required to start a batch. You can still review batches and their clips below.
+        </p>
+      )}
 
       <div className="panel form-panel">
         <div className="panel-header">
@@ -288,7 +291,12 @@ export default function BatchPage() {
             </div>
           </div>
 
-          <button type="submit" className="btn-run" disabled={submitting}>
+          <button
+            type="submit"
+            className="btn-run"
+            disabled={submitting || !isAdmin}
+            title={isAdmin ? undefined : "Admin access required"}
+          >
             <span className="btn-run-inner">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                 <polygon points="6,4 20,12 6,20" fill="currentColor" />

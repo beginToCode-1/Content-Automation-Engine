@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { apiFetch, apiUrl, platformsFromStr, type ScheduleEntry } from "@/lib/api";
+import { apiFetch, platformsFromStr, type ScheduleEntry } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function SchedulePage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,7 +54,7 @@ export default function SchedulePage() {
     setStatusText("Saving...");
     setSubmitting(true);
     try {
-      const response = await fetch(apiUrl("/api/schedule"), {
+      await apiFetch("/api/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -62,11 +65,6 @@ export default function SchedulePage() {
           daily_time: recurrence === "daily" ? dailyTime : null,
         }),
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        setStatusText("Error: " + (err.detail || response.statusText));
-        return;
-      }
       setStatusText("");
       setTopic("");
       setScheduledTime("");
@@ -82,8 +80,10 @@ export default function SchedulePage() {
   async function handleCancel(id: number) {
     setCancellingId(id);
     try {
-      await fetch(apiUrl(`/api/schedule/${id}/cancel`), { method: "POST" });
+      await apiFetch(`/api/schedule/${id}/cancel`, { method: "POST" });
       reloadSchedules();
+    } catch {
+      // matches the previous behavior: a failed cancel just leaves the row as-is
     } finally {
       setCancellingId(null);
     }
@@ -102,6 +102,12 @@ export default function SchedulePage() {
         publish manually once you are satisfied with the result. There is no way to configure a public scheduled
         upload.
       </p>
+
+      {!isAdmin && (
+        <p className="note" style={{ maxWidth: 640, marginBottom: 20 }}>
+          Admin access required to add or cancel scheduled topics. You can still review the schedule below.
+        </p>
+      )}
 
       <div className="panel form-panel">
         <div className="panel-header">
@@ -192,7 +198,12 @@ export default function SchedulePage() {
             <input type="time" name="daily_time" value={dailyTime} onChange={(e) => setDailyTime(e.target.value)} />
           </div>
 
-          <button type="submit" className="btn-run" disabled={submitting}>
+          <button
+            type="submit"
+            className="btn-run"
+            disabled={submitting || !isAdmin}
+            title={isAdmin ? undefined : "Admin access required"}
+          >
             <span className="btn-run-inner">Add Schedule</span>
           </button>
           <div id="new-schedule-status" className="status-text">
@@ -231,7 +242,7 @@ export default function SchedulePage() {
                   <td>{entry.status}</td>
                   <td>{entry.last_run_id ? <Link href={`/runs/${entry.last_run_id}`}>{entry.last_run_id}</Link> : "-"}</td>
                   <td>
-                    {entry.status === "active" && (
+                    {entry.status === "active" && isAdmin && (
                       <button
                         type="button"
                         className="btn-secondary cancel-schedule"

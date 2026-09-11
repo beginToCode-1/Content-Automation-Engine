@@ -412,7 +412,7 @@ a:hover { text-decoration: underline; }
   margin-bottom: 8px;
 }
 
-input[type="text"], input[type="datetime-local"], input[type="time"] {
+input[type="text"], input[type="datetime-local"], input[type="time"], input[type="email"], input[type="password"] {
   width: 100%;
   background: var(--input-bg);
   border: 1px solid transparent;
@@ -425,7 +425,7 @@ input[type="text"], input[type="datetime-local"], input[type="time"] {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-input[type="text"]:focus, input[type="datetime-local"]:focus, input[type="time"]:focus {
+input[type="text"]:focus, input[type="datetime-local"]:focus, input[type="time"]:focus, input[type="email"]:focus, input[type="password"]:focus {
   outline: none;
   border-bottom-color: var(--accent);
   box-shadow: none;
