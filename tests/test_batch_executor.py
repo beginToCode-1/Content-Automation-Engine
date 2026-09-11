@@ -32,7 +32,16 @@ def test_execute_batch_staggers_uploads_exactly(tmp_path):
     fixed_now = datetime(2026, 1, 1, 12, 0, 0)
     clips = [_fake_clip(f"run{i}", 1, i + 1, tmp_path) for i in range(3)]
 
-    def fake_generate(topic, settings_arg, batch_id, videos_count, clips_per_video, on_progress=None, on_clip_ready=None):
+    def fake_generate(
+        topic,
+        settings_arg,
+        batch_id,
+        videos_count,
+        clips_per_video,
+        on_progress=None,
+        on_clip_ready=None,
+        youtube_account_id=None,
+    ):
         for i, clip in enumerate(clips):
             on_clip_ready(clip, clip.video_rank, clip.clip_rank)
         return clips

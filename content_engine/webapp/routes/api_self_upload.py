@@ -14,6 +14,7 @@ from content_engine.models import ClipMetadata
 from content_engine.pipeline import upload_clip_to_platforms
 from content_engine.render.clip_builder import CLIP_FILENAME
 from content_engine.webapp import executor
+from content_engine.webapp.account_selection import resolve_youtube_account_id
 from content_engine.webapp.deps import get_settings, require_admin
 from content_engine.webapp.routes.api_runs import VALID_PLATFORMS
 
@@ -70,6 +71,7 @@ class PublishDraftRequest(BaseModel):
     hashtags: list[str] = []
     platforms: list[str] = ["youtube"]
     privacy: str | None = None
+    youtube_account_id: str | None = None
 
 
 @router.post("/self-upload/{draft_id}/publish", status_code=202)
@@ -97,6 +99,7 @@ async def publish_draft(
 
     metadata = ClipMetadata(title=payload.title.strip(), description=payload.description, hashtags=payload.hashtags)
     effective_privacy = payload.privacy or settings.upload_privacy_status
+    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
 
     await run_in_threadpool(
         runs_repo.insert_run,
@@ -110,6 +113,7 @@ async def publish_draft(
         None,
         str(draft_dir),
         user["id"],
+        youtube_account_id,
     )
     await run_in_threadpool(
         runs_repo.update_fields,
@@ -123,11 +127,22 @@ async def publish_draft(
         effective_privacy=effective_privacy,
     )
 
-    executor.run_in_background(_publish, settings, draft_id, clip_path, metadata, platforms, effective_privacy, topic)
+    executor.run_in_background(
+        _publish, settings, draft_id, clip_path, metadata, platforms, effective_privacy, topic, youtube_account_id
+    )
     return {"run_id": draft_id}
 
 
-def _publish(settings: Settings, run_id: str, clip_path, metadata: ClipMetadata, platforms, effective_privacy, topic):
+def _publish(
+    settings: Settings,
+    run_id: str,
+    clip_path,
+    metadata: ClipMetadata,
+    platforms,
+    effective_privacy,
+    topic,
+    youtube_account_id: str | None = None,
+):
     runs_repo.mark_running(settings.db_path, run_id)
 
     def on_progress(stage: str, message: str) -> None:
@@ -142,6 +157,7 @@ def _publish(settings: Settings, run_id: str, clip_path, metadata: ClipMetadata,
             effective_privacy,
             topic,
             run_id,
+            youtube_account_id=youtube_account_id,
             on_progress=on_progress,
             raise_if_all_failed=False,
         )

@@ -5,6 +5,7 @@ import jwt
 
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_TTL = timedelta(days=7)
+OAUTH_STATE_TTL = timedelta(minutes=10)
 
 
 def hash_password(password: str) -> str:
@@ -35,3 +36,22 @@ def decode_access_token(secret_key: str, token: str) -> dict:
     """Raises jwt.PyJWTError (expired, bad signature, malformed, ...) on any failure -
     callers translate that into a 401."""
     return jwt.decode(token, secret_key, algorithms=[JWT_ALGORITHM])
+
+
+def create_oauth_state_token(secret_key: str, user_id: str) -> str:
+    """Short-lived, single-purpose token passed as the OAuth `state` param so
+    the callback (which Google redirects to directly, no Authorization header)
+    can recover which user initiated the connect flow, and so a state value
+    can't be reused as - or forged from - a real session token."""
+    now = datetime.now(timezone.utc)
+    payload = {"sub": user_id, "purpose": "oauth_state", "iat": now, "exp": now + OAUTH_STATE_TTL}
+    return jwt.encode(payload, secret_key, algorithm=JWT_ALGORITHM)
+
+
+def decode_oauth_state_token(secret_key: str, token: str) -> str:
+    """Returns the user_id. Raises jwt.PyJWTError on any failure, or ValueError
+    if the token is well-formed but wasn't issued for this purpose."""
+    payload = jwt.decode(token, secret_key, algorithms=[JWT_ALGORITHM])
+    if payload.get("purpose") != "oauth_state":
+        raise ValueError("Not an OAuth state token")
+    return payload["sub"]

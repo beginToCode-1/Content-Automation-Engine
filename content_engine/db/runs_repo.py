@@ -36,19 +36,21 @@ def insert_run(
     schedule_id: int | None = None,
     work_dir: str | None = None,
     user_id: str | None = None,
+    youtube_account_id: str | None = None,
 ) -> None:
     conn = get_connection(db_path)
     try:
         conn.execute(
             """
             INSERT INTO runs (
-                run_id, user_id, topic, trigger_source, schedule_id, status,
+                run_id, user_id, youtube_account_id, topic, trigger_source, schedule_id, status,
                 dry_run, requested_privacy, target_platforms, work_dir
-            ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
             """,
             (
                 run_id,
                 user_id,
+                youtube_account_id,
                 topic,
                 trigger_source,
                 schedule_id,

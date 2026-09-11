@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
-from content_engine.auth.google_oauth import ALL_SCOPES, get_youtube_client
+from content_engine.auth.google_oauth import ALL_SCOPES, get_youtube_client, get_youtube_client_for_account
 from content_engine.config import Settings
 from content_engine.download.yt_dlp_downloader import download_video
 from content_engine.errors import PipelineError, UploadFailedError
@@ -51,6 +51,18 @@ def _notify(on_progress: ProgressCallback | None, logger: logging.Logger, stage:
         logger.exception("on_progress callback raised for stage=%s (ignored)", stage)
 
 
+def _resolve_youtube_oauth_client(settings: Settings, youtube_account_id: str | None):
+    """CLI callers never pass youtube_account_id and fall back to the legacy
+    single global account (config/token.json). Web-triggered callers always
+    resolve a specific connected account instead - the route layer guarantees
+    one was chosen before the run/batch/schedule was even created."""
+    if youtube_account_id:
+        return get_youtube_client_for_account(youtube_account_id, settings)
+    if not settings.youtube_api_key:
+        return get_youtube_client(ALL_SCOPES, settings)
+    return None
+
+
 def _build_uploader(platform: str, oauth_client, settings: Settings):
     if platform == "youtube":
         return YouTubeUploader(oauth_client)
@@ -70,6 +82,7 @@ def upload_clip_to_platforms(
     topic: str,
     run_id: str,
     oauth_client=None,
+    youtube_account_id: str | None = None,
     on_progress: ProgressCallback | None = None,
     notification_label: str | None = None,
     logger: logging.Logger | None = None,
@@ -91,7 +104,7 @@ def upload_clip_to_platforms(
     label = notification_label or topic
 
     if "youtube" in platforms and oauth_client is None:
-        oauth_client = get_youtube_client(ALL_SCOPES, settings)
+        oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
 
     upload_outcomes: list[PlatformUploadOutcome] = []
     for platform in platforms:
@@ -132,6 +145,7 @@ def run_pipeline(
     force_private: bool = False,
     run_id: str | None = None,
     on_progress: ProgressCallback | None = None,
+    youtube_account_id: str | None = None,
 ) -> PipelineResult:
     run_id = run_id or uuid.uuid4().hex[:10]
     platforms = target_platforms or ["youtube"]
@@ -145,9 +159,7 @@ def run_pipeline(
         _notify(on_progress, logger, stage, message)
 
     try:
-        oauth_client = None
-        if not settings.youtube_api_key:
-            oauth_client = get_youtube_client(ALL_SCOPES, settings)
+        oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
         search_client = build_search_client(settings.youtube_api_key, oauth_client)
 
         candidates = search_videos(topic, client=search_client)
@@ -239,6 +251,7 @@ def generate_clips_for_topic(
     clips_per_video: int = 3,
     on_progress: ProgressCallback | None = None,
     on_clip_ready: Callable[[GeneratedClip, int, int], None] | None = None,
+    youtube_account_id: str | None = None,
 ) -> list[GeneratedClip]:
     """Generation-only counterpart to run_pipeline() for batch runs: searches once,
     selects up to `videos_count` different source videos, and for each video
@@ -252,9 +265,7 @@ def generate_clips_for_topic(
     def notify(stage: str, message: str) -> None:
         _notify(on_progress, logger, stage, message)
 
-    oauth_client = None
-    if not settings.youtube_api_key:
-        oauth_client = get_youtube_client(ALL_SCOPES, settings)
+    oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
     search_client = build_search_client(settings.youtube_api_key, oauth_client)
 
     candidates = search_videos(topic, client=search_client)

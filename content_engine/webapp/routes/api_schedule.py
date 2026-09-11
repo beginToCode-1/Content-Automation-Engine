@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from content_engine.config import Settings
 from content_engine.db import schedules_repo
+from content_engine.webapp.account_selection import resolve_youtube_account_id
 from content_engine.webapp.deps import get_current_user, get_settings, require_admin
 
 router = APIRouter(prefix="/api")
@@ -19,6 +20,7 @@ class NewScheduleRequest(BaseModel):
     platforms: list[str] = ["youtube"]
     scheduled_time: str | None = None  # ISO datetime, required for recurrence="once"
     daily_time: str | None = None  # "HH:MM", required for recurrence="daily"
+    youtube_account_id: str | None = None
 
 
 @router.post("/schedule", status_code=201)
@@ -47,14 +49,18 @@ async def create_schedule(
             raise HTTPException(status_code=400, detail="daily_time is required for a 'daily' schedule")
         daily_time = payload.daily_time
 
+    platforms = payload.platforms or ["youtube"]
+    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
+
     schedule_id = schedules_repo.insert_schedule(
         settings.db_path,
         topic,
         payload.recurrence,
-        payload.platforms or ["youtube"],
+        platforms,
         scheduled_time=scheduled_time_iso,
         daily_time=daily_time,
         user_id=user["id"],
+        youtube_account_id=youtube_account_id,
     )
     return {"id": schedule_id}
 

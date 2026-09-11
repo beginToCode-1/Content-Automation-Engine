@@ -14,6 +14,7 @@ from content_engine.webapp.routes import (
     api_auth,
     api_batches,
     api_meta,
+    api_oauth,
     api_runs,
     api_schedule,
     api_self_upload,
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(api_batches.router)
     app.include_router(api_self_upload.router)
     app.include_router(api_meta.router)
+    app.include_router(api_oauth.router)
     app.include_router(media.router)
 
     return app

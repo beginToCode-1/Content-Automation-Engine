@@ -30,6 +30,37 @@ cache a refresh token at `config/token.json` so you won't need to repeat this.
 **Quota**: default is 10,000 units/day. Search costs 100 units, upload costs 1600
 units per run, so budget for roughly 5 full runs/day on the free tier.
 
+### YouTube: per-user "Connect Account" flow (web dashboard)
+
+The CLI (above) uses one shared account for the whole machine. The web dashboard is
+different: **each logged-in user connects their own YouTube channel(s)** from a
+"Connected Accounts" page, and can connect more than one and pick which to publish to
+per run. This needs a **separate, second OAuth client** - a "Web application" type,
+not the "Desktop app" one above:
+
+1. **APIs & Services -> Credentials -> Create Credentials -> OAuth client ID** ->
+   Application type **Web application**.
+2. **Authorized redirect URIs** -> add your backend's callback URL, e.g.
+   `https://your-backend.onrender.com/api/oauth/youtube/callback` (and
+   `http://127.0.0.1:8000/api/oauth/youtube/callback` for local dev).
+3. Fill in `.env` / your host's env vars: `GOOGLE_OAUTH_CLIENT_ID`,
+   `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI` (must exactly match what
+   you entered in step 2), and `FRONTEND_BASE_URL` (your deployed frontend's origin -
+   where the browser lands after a connect attempt finishes).
+4. Under **OAuth consent screen -> Test users**, add the Google account(s) of every
+   person who should be able to connect a channel. **This app stays in Google's
+   "Testing" mode** - up to 100 manually-added test users, no public app review. Anyone
+   not added here gets rejected by Google at the consent screen, regardless of whether
+   they have an account on this app.
+5. `TOKEN_ENCRYPTION_KEY` (also required) encrypts stored per-account tokens at rest -
+   generate with:
+   ```
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+
+Leave `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`/`_REDIRECT_URI` unset to disable the connect
+flow entirely (the rest of the app keeps working; "Connect YouTube" just 400s).
+
 ### ffmpeg
 
 ```powershell
@@ -151,6 +182,20 @@ Data is per-user: each account only sees the runs/batches/schedules it
 created, regardless of role. There's no cross-user visibility (an admin
 doesn't see a viewer's data or vice versa) and no promotion/demotion UI - that
 requires editing the `users` table's `role` column directly.
+
+### Connected YouTube accounts
+
+Each admin connects their own YouTube channel(s) from the Connected Accounts page
+(see the "YouTube: per-user Connect Account flow" setup section above) and can
+connect more than one. When starting a run/batch/schedule/self-upload that includes
+`youtube` as a target platform:
+- Exactly one connected account -> used automatically.
+- Zero connected accounts -> the request 400s with "Connect a YouTube account first".
+- Two or more -> the request must specify `youtube_account_id` explicitly, or it 400s.
+
+Tokens are encrypted at rest (`TOKEN_ENCRYPTION_KEY`) and refreshed automatically when
+expired. Instagram/TikTok are **not** on this per-user model yet - they're still one
+shared credential set for the whole deployment, configured via `.env`/host env vars.
 
 ## 2. Verifying setup
 
@@ -302,7 +347,8 @@ python -m pytest
 - Multi-video compilation (single video, single segment only)
 - Upload retry logic (a failed/rejected upload is a terminal error per run, by design)
 - Speech-to-text fallback for videos with no captions at all
-- Multi-user auth on the dashboard (single-user local tool, binds to 127.0.0.1 by default)
+- Promotion/demotion UI for user roles (direct DB edit only)
+- Per-user Instagram/TikTok accounts (still one shared credential set per deployment)
 - Chunked multi-part TikTok upload (single-chunk only, fine for our ~30-60s clips;
   a clip over 50MB will fail with a clear error rather than silently truncating)
 - Automated tunnel management for Instagram/TikTok (you run `ngrok` yourself)

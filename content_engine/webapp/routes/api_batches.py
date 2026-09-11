@@ -5,6 +5,7 @@ from starlette.concurrency import run_in_threadpool
 from content_engine.config import Settings
 from content_engine.db import batches_repo, runs_repo
 from content_engine.webapp import batch_executor
+from content_engine.webapp.account_selection import resolve_youtube_account_id
 from content_engine.webapp.deps import get_current_user, get_settings, require_admin
 from content_engine.webapp.routes.api_runs import VALID_PLATFORMS
 
@@ -18,6 +19,7 @@ class NewBatchRequest(BaseModel):
     clips_per_video: int
     stagger_gap_minutes: int
     privacy: str | None = None
+    youtube_account_id: str | None = None
 
 
 @router.get("/batches")
@@ -52,6 +54,8 @@ async def create_batch(
     if payload.stagger_gap_minutes < 1:
         raise HTTPException(status_code=400, detail="stagger_gap_minutes must be at least 1")
 
+    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
+
     batch_id = await run_in_threadpool(
         batch_executor.submit_batch,
         settings,
@@ -62,6 +66,7 @@ async def create_batch(
         stagger_gap_minutes=payload.stagger_gap_minutes,
         privacy_override=payload.privacy,
         user_id=user["id"],
+        youtube_account_id=youtube_account_id,
     )
     return {"batch_id": batch_id}
 

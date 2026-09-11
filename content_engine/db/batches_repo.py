@@ -13,19 +13,21 @@ def insert_batch(
     stagger_gap_minutes: int,
     requested_privacy: str | None = None,
     user_id: str | None = None,
+    youtube_account_id: str | None = None,
 ) -> None:
     conn = get_connection(db_path)
     try:
         conn.execute(
             """
             INSERT INTO run_batches (
-                batch_id, user_id, topic, target_platforms, videos_count, clips_per_video,
+                batch_id, user_id, youtube_account_id, topic, target_platforms, videos_count, clips_per_video,
                 stagger_gap_minutes, requested_privacy
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 batch_id,
                 user_id,
+                youtube_account_id,
                 topic,
                 ",".join(target_platforms),
                 videos_count,

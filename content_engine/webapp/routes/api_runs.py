@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 from content_engine.config import Settings
 from content_engine.db import runs_repo, uploads_repo
 from content_engine.webapp import executor
+from content_engine.webapp.account_selection import resolve_youtube_account_id
 from content_engine.webapp.deps import get_current_user, get_settings, require_admin
 
 router = APIRouter(prefix="/api")
@@ -28,6 +29,7 @@ class NewRunRequest(BaseModel):
     mode: str = "generate_and_upload"
     platforms: list[str] = ["youtube"]
     privacy: str | None = None
+    youtube_account_id: str | None = None
 
 
 @router.post("/runs", status_code=202)
@@ -44,6 +46,7 @@ async def create_run(
         raise HTTPException(status_code=400, detail=f"Unknown platform(s): {sorted(unknown)}")
 
     dry_run = payload.mode == "generate_only"
+    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
 
     run_id = await run_in_threadpool(
         executor.submit_run,
@@ -54,6 +57,7 @@ async def create_run(
         dry_run=dry_run,
         privacy_override=payload.privacy,
         user_id=user["id"],
+        youtube_account_id=youtube_account_id,
     )
     return {"run_id": run_id}
 
@@ -125,7 +129,15 @@ async def retry_run(
         )
         effective_privacy = run["effective_privacy"] or privacy or settings.upload_privacy_status
         executor.run_in_background(
-            _publish, settings, run_id, clip_path, metadata, platforms, effective_privacy, run["topic"]
+            _publish,
+            settings,
+            run_id,
+            clip_path,
+            metadata,
+            platforms,
+            effective_privacy,
+            run["topic"],
+            run["youtube_account_id"],
         )
         return {"run_id": run_id}
 
@@ -138,6 +150,11 @@ async def retry_run(
         dry_run=False,
         privacy_override=privacy,
         user_id=user["id"],
+        # Retry reuses the account the original run was tied to - if it was
+        # disconnected since then, get_youtube_client_for_account raises a
+        # clear ConfigError that surfaces as this run's failure message,
+        # rather than silently re-resolving to some other connected account.
+        youtube_account_id=run["youtube_account_id"],
     )
     return {"run_id": new_run_id}
 

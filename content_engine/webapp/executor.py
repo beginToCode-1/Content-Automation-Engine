@@ -59,6 +59,7 @@ def submit_run(
     schedule_id: int | None = None,
     force_private: bool = False,
     user_id: str | None = None,
+    youtube_account_id: str | None = None,
 ) -> str:
     if _executor is None:
         raise RuntimeError("executor not initialized - call init_executor() first")
@@ -74,9 +75,18 @@ def submit_run(
         requested_privacy=privacy_override,
         schedule_id=schedule_id,
         user_id=user_id,
+        youtube_account_id=youtube_account_id,
     )
     future = _executor.submit(
-        _execute, settings, run_id, topic, dry_run, privacy_override, target_platforms, force_private
+        _execute,
+        settings,
+        run_id,
+        topic,
+        dry_run,
+        privacy_override,
+        target_platforms,
+        force_private,
+        youtube_account_id,
     )
     _futures[run_id] = future
     return run_id
@@ -90,6 +100,7 @@ def _execute(
     privacy_override: str | None,
     target_platforms: list[str],
     force_private: bool,
+    youtube_account_id: str | None = None,
 ) -> None:
     runs_repo.mark_running(settings.db_path, run_id)
 
@@ -106,6 +117,7 @@ def _execute(
             force_private=force_private,
             run_id=run_id,
             on_progress=on_progress,
+            youtube_account_id=youtube_account_id,
         )
     except PipelineError as e:
         runs_repo.mark_failed(settings.db_path, run_id, str(e))

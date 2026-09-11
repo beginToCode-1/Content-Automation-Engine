@@ -47,11 +47,16 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
-def channel_connection_status(settings: Settings) -> list[dict]:
-    """Real (not fabricated) connection status per platform, derived from
-    whatever credentials are actually present on disk/in .env - no follower
-    counts or fake sync state, just whether each platform is actually usable."""
+def channel_connection_status(settings: Settings, user_id: str) -> list[dict]:
+    """Real (not fabricated) connection status per platform. YouTube is now
+    per-user (the connected_accounts table) rather than the legacy global
+    config/token.json file, which only the CLI still uses. Instagram/TikTok
+    remain single shared deployment-wide credentials (set via .env), not yet
+    moved to the per-user model."""
     from content_engine.auth import tiktok_oauth
+    from content_engine.db import connected_accounts_repo
+
+    youtube_accounts = connected_accounts_repo.list_accounts_public(settings.db_path, user_id, "youtube")
 
     return [
         {
@@ -59,7 +64,7 @@ def channel_connection_status(settings: Settings) -> list[dict]:
             "label": "YouTube",
             "short": "YT",
             "icon_class": "icon-yt",
-            "connected": settings.token_path.exists(),
+            "connected": len(youtube_accounts) > 0,
         },
         {
             "key": "instagram",

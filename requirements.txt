@@ -14,4 +14,5 @@ python-multipart>=0.0.9
 requests>=2.31
 pyjwt>=2.8
 bcrypt>=4.1
+cryptography>=42
 win11toast>=0.32; sys_platform == "win32"

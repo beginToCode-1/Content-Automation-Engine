@@ -12,15 +12,17 @@ def insert_schedule(
     scheduled_time: str | None = None,
     daily_time: str | None = None,
     user_id: str | None = None,
+    youtube_account_id: str | None = None,
 ) -> int:
     conn = get_connection(db_path)
     try:
         cursor = conn.execute(
             """
-            INSERT INTO scheduled_topics (user_id, topic, recurrence, scheduled_time, daily_time, target_platforms)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO scheduled_topics (
+                user_id, youtube_account_id, topic, recurrence, scheduled_time, daily_time, target_platforms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, topic, recurrence, scheduled_time, daily_time, ",".join(target_platforms)),
+            (user_id, youtube_account_id, topic, recurrence, scheduled_time, daily_time, ",".join(target_platforms)),
         )
         conn.commit()
         return cursor.lastrowid

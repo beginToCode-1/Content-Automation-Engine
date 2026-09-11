@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api")
 @router.get("/meta")
 async def get_meta(settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)):
     return {
-        "channels": channel_connection_status(settings),
+        "channels": channel_connection_status(settings, user["id"]),
         "runs_count": runs_repo.count_all(settings.db_path, user["id"]),
         "batch_defaults": {
             "default_stagger_minutes": settings.batch_default_stagger_minutes,

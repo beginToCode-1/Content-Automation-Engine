@@ -6,9 +6,26 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+CREATE TABLE IF NOT EXISTS connected_accounts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    platform TEXT NOT NULL CHECK(platform IN ('youtube','instagram','tiktok')),
+    account_label TEXT NOT NULL,
+    external_account_id TEXT NOT NULL,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT,
+    token_expiry TEXT,
+    scopes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    UNIQUE(user_id, platform, external_account_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_connected_accounts_user ON connected_accounts(user_id, platform);
+
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES users(id),
+    youtube_account_id TEXT REFERENCES connected_accounts(id),
     topic TEXT NOT NULL,
     trigger_source TEXT NOT NULL CHECK(trigger_source IN ('cli','web','scheduled')),
     schedule_id INTEGER REFERENCES scheduled_topics(id),
@@ -64,6 +81,7 @@ CREATE TABLE IF NOT EXISTS run_uploads (
 CREATE TABLE IF NOT EXISTS scheduled_topics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT REFERENCES users(id),
+    youtube_account_id TEXT REFERENCES connected_accounts(id),
     topic TEXT NOT NULL,
     recurrence TEXT NOT NULL DEFAULT 'once' CHECK(recurrence IN ('once','daily')),
     scheduled_time TEXT,
@@ -80,6 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_schedules_status ON scheduled_topics(status);
 CREATE TABLE IF NOT EXISTS run_batches (
     batch_id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES users(id),
+    youtube_account_id TEXT REFERENCES connected_accounts(id),
     topic TEXT NOT NULL,
     target_platforms TEXT NOT NULL,
     videos_count INTEGER NOT NULL,

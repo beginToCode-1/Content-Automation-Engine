@@ -49,6 +49,21 @@ class Settings:
     smtp_from_address: str | None
 
     jwt_secret_key: str = ""
+    token_encryption_key: str = ""
+
+    # Web-flow (per-user, multi-account) Google OAuth client - distinct from
+    # client_secret_path/token_path above, which are the legacy Desktop-app
+    # client used only by the CLI's single global account. None of these three
+    # are required at startup (unlike jwt_secret_key/token_encryption_key):
+    # the "Connect YouTube" flow just 400s with a clear message until they're
+    # set, so the rest of the app keeps working without them configured yet.
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
+    google_oauth_redirect_uri: str | None = None
+
+    # Where /api/oauth/youtube/callback sends the browser after a connect
+    # attempt finishes (success or failure) - the deployed frontend's origin.
+    frontend_base_url: str | None = None
 
     cors_allow_origins: list[str] = field(default_factory=list)
 
@@ -82,6 +97,14 @@ class Settings:
             raise ConfigError(
                 "JWT_SECRET_KEY is not set. Generate one with "
                 "`python -c \"import secrets; print(secrets.token_hex(32))\"` and add it to .env."
+            )
+
+        token_encryption_key = os.getenv("TOKEN_ENCRYPTION_KEY", "").strip()
+        if not token_encryption_key:
+            raise ConfigError(
+                "TOKEN_ENCRYPTION_KEY is not set. Generate one with "
+                "`python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"` "
+                "and add it to .env."
             )
 
         return cls(
@@ -128,4 +151,9 @@ class Settings:
             smtp_password=(os.getenv("SMTP_PASSWORD", "").strip() or None),
             smtp_from_address=(os.getenv("SMTP_FROM_ADDRESS", "").strip() or None),
             jwt_secret_key=jwt_secret_key,
+            token_encryption_key=token_encryption_key,
+            google_oauth_client_id=(os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip() or None),
+            google_oauth_client_secret=(os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip() or None),
+            google_oauth_redirect_uri=(os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip() or None),
+            frontend_base_url=(os.getenv("FRONTEND_BASE_URL", "").strip().rstrip("/") or None),
         )

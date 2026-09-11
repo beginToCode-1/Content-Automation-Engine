@@ -49,6 +49,7 @@ def process_due_upload(settings: Settings, run_row: dict) -> None:
             effective_privacy,
             run_row["topic"],
             run_id,
+            youtube_account_id=run_row["youtube_account_id"],
             on_progress=on_progress,
             raise_if_all_failed=False,
         )

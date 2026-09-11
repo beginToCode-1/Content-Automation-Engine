@@ -22,6 +22,7 @@ def submit_batch(
     stagger_gap_minutes: int,
     privacy_override: str | None = None,
     user_id: str | None = None,
+    youtube_account_id: str | None = None,
 ) -> str:
     batch_id = uuid.uuid4().hex[:10]
     batches_repo.insert_batch(
@@ -34,6 +35,7 @@ def submit_batch(
         stagger_gap_minutes,
         requested_privacy=privacy_override,
         user_id=user_id,
+        youtube_account_id=youtube_account_id,
     )
     executor.run_in_background(
         _execute_batch,
@@ -46,6 +48,7 @@ def submit_batch(
         stagger_gap_minutes,
         privacy_override,
         user_id,
+        youtube_account_id,
     )
     return batch_id
 
@@ -60,6 +63,7 @@ def _execute_batch(
     stagger_gap_minutes: int,
     privacy_override: str | None,
     user_id: str | None = None,
+    youtube_account_id: str | None = None,
 ) -> None:
     effective_privacy = privacy_override or settings.upload_privacy_status
     clip_index = 0
@@ -84,6 +88,7 @@ def _execute_batch(
             requested_privacy=privacy_override,
             work_dir=str(clip.work_dir),
             user_id=user_id,
+            youtube_account_id=youtube_account_id,
         )
         runs_repo.mark_running(settings.db_path, clip.run_id)
         runs_repo.update_fields(
@@ -117,6 +122,7 @@ def _execute_batch(
             clips_per_video=clips_per_video,
             on_progress=on_progress,
             on_clip_ready=on_clip_ready,
+            youtube_account_id=youtube_account_id,
         )
     except PipelineError as e:
         logger.error("Batch %s generation failed: %s", batch_id, e)
