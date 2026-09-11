@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.run_id }} - Content Engine{% endblock %}
+{% block breadcrumb %}Runs{% endblock %}
+{% block page_title %}{{ run.topic }}{% endblock %}
+{% block page_header_action %}
+  {% if run.source_type == "own_upload" %}
+    <a href="/" class="btn-header-action">Back to Upload</a>
+  {% else %}
+    <a href="/studio" class="btn-header-action">Back to Studio</a>
+  {% endif %}
+{% endblock %}
+{% block content %}
+  <p class="meta-line" style="margin-bottom:20px; margin-top:-14px;">
+    {% if run.status == "succeeded" and run.scheduled_upload_at %}
+      <span class="badge badge-queued" id="run-status">queued</span>
+    {% else %}
+      <span class="badge badge-{{ run.status }}" id="run-status">{{ run.status }}</span>
+    {% endif %}
+    &middot; Stage: <strong id="run-stage" style="color:var(--text)">{{ run.current_stage or "-" }}</strong>
+    &middot; Trigger: {{ run.trigger_source }}
+    &middot; Platforms: {{ run.platforms | join(", ") }}
+  </p>
+
+  {% if run.error_message %}
+    <p class="error">{{ run.error_message }}</p>
+  {% endif %}
+
+  {% if run.scheduled_upload_at %}
+    <p class="note">
+      Upload scheduled for {{ run.scheduled_upload_at }}.
+      <button type="button" class="btn-secondary" id="cancel-upload-btn" style="margin-left: 10px;">Cancel scheduled upload</button>
+    </p>
+  {% endif %}
+
+  <div class="studio-grid">
+    <div class="panel">
+      {% if run.clip_path %}
+        <video controls src="/media/{{ run.run_id }}/clip.mp4"></video>
+      {% else %}
+        <div class="preview-box"><div class="preview-box-text">No clip rendered for this run.</div></div>
+      {% endif %}
+
+      {% if run.metadata_title %}
+        <h2 style="margin-top:18px;">Generated Metadata</h2>
+        <p style="font-weight:600; margin:8px 0 4px;">{{ run.metadata_title }}</p>
+        <p class="meta-line">{{ run.metadata_description }}</p>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <h2 style="margin-bottom:12px;">Uploads</h2>
+      <ul id="upload-list">
+        {% for upload in uploads %}
+          <li>{{ upload.platform }}: {{ upload.status }}
+            {% if upload.url %}- <a href="{{ upload.url }}" target="_blank">{{ upload.url }}</a>{% endif %}
+            {% if upload.error_message %}- {{ upload.error_message }}{% endif %}
+          </li>
+        {% else %}
+          <li>No upload attempts yet.</li>
+        {% endfor %}
+      </ul>
+
+      <h2 style="margin:18px 0 12px;">Progress Log</h2>
+      <ul id="event-list">
+        {% for event in events %}
+          <li data-id="{{ event.id }}">[{{ event.stage }}] {{ event.message }}</li>
+        {% else %}
+          <li>Waiting for the run to start.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    const RUN_ID = {{ run.run_id | tojson }};
+    const INITIAL_STATUS = {{ run.status | tojson }};
+  </script>
+  <script src="/static/run-detail.js?v={{ asset_version }}"></script>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Studio - Content Engine{% endblock %}
+{% block nav_studio %}active{% endblock %}
+{% block breadcrumb %}Studio{% endblock %}
+{% block page_title %}Production Studio{% endblock %}
+{% block page_subtitle %}Search, clip, and auto-publish a new short from a topic across your connected platforms.{% endblock %}
+{% block content %}
+  <div class="studio-grid">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>New Production Run</h2>
+      </div>
+
+      <form id="new-run-form">
+        <div class="field">
+          <label class="field-label" for="topic-input">Focus topic</label>
+          <input type="text" id="topic-input" name="topic" placeholder="e.g. stoic philosophy, extreme sports, luxury watch history" required>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Target channels</label>
+          <div class="toggle-row">
+            <label class="toggle-chip checked" data-chip>
+              <input type="checkbox" name="platforms" value="youtube" checked>
+              <span class="icon-badge icon-yt">YT</span> YouTube Shorts
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="instagram">
+              <span class="icon-badge icon-ig">IG</span> Instagram Reels
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="tiktok">
+              <span class="icon-badge icon-tt">TT</span> TikTok
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Execution mode</label>
+          <div class="segmented">
+            <input type="radio" name="mode" value="generate_and_upload" id="mode-upload" checked>
+            <label for="mode-upload">Generate and Publish</label>
+            <input type="radio" name="mode" value="generate_only" id="mode-dry">
+            <label for="mode-dry">Dry Run (Draft Only)</label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Upload privacy</label>
+          <div class="segmented">
+            <input type="radio" name="privacy" value="private" id="run-privacy-private" checked>
+            <label for="run-privacy-private">Private</label>
+            <input type="radio" name="privacy" value="public" id="run-privacy-public">
+            <label for="run-privacy-public">Public</label>
+          </div>
+          <div class="field-hint">Public goes live immediately once the run finishes uploading.</div>
+        </div>
+
+        <button type="submit" class="btn-run">
+          <span class="btn-run-inner" id="run-btn-inner">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
+            Start Run
+          </span>
+        </button>
+        <div id="new-run-status" class="status-text"></div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2 id="monitor-title">Stage Monitor</h2>
+        <span class="live-dot idle" id="live-dot"></span>
+      </div>
+
+      <div class="stage-list" id="stage-list"></div>
+
+      <div class="preview-box">
+        <div class="preview-box-label">Status</div>
+        <div class="preview-box-text" id="preview-text">No run in progress.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/new-run.js?v={{ asset_version }}"></script>
+{% endblock %}

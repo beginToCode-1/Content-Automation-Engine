@@ -1,0 +1,15 @@
+yt-dlp>=2024.1
+youtube-transcript-api>=0.6
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2
+google-auth-httplib2
+google-genai>=1.0
+python-dotenv>=1.0
+scikit-learn>=1.4
+rich>=13
+fastapi>=0.110
+uvicorn[standard]>=0.29
+jinja2>=3.1
+python-multipart>=0.0.9
+requests>=2.31
+win11toast>=0.32; sys_platform == "win32"

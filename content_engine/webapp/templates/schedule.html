@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Schedule - Content Engine{% endblock %}
+{% block nav_schedule %}active{% endblock %}
+{% block breadcrumb %}Schedule{% endblock %}
+{% block page_title %}Publication Schedule{% endblock %}
+{% block page_subtitle %}Automated recurring topics, always uploaded private for manual review.{% endblock %}
+{% block content %}
+  <p class="note" style="max-width:640px; margin-bottom:20px;">Scheduled runs always upload as <strong>private</strong>,
+    regardless of any other setting. Review and publish manually once you are satisfied with the result. There is
+    no way to configure a public scheduled upload.</p>
+
+  <div class="panel form-panel">
+    <div class="panel-header">
+      <h2>Add a Scheduled Topic</h2>
+    </div>
+
+      <form id="new-schedule-form">
+        <div class="field">
+          <label class="field-label" for="schedule-topic">Topic</label>
+          <input type="text" id="schedule-topic" name="topic" placeholder="e.g. stoic philosophy" required>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Target channels</label>
+          <div class="toggle-row">
+            <label class="toggle-chip checked" data-chip>
+              <input type="checkbox" name="platforms" value="youtube" checked>
+              <span class="icon-badge icon-yt">YT</span> YouTube
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="instagram">
+              <span class="icon-badge icon-ig">IG</span> Instagram
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="tiktok">
+              <span class="icon-badge icon-tt">TT</span> TikTok
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">When</label>
+          <div class="segmented" style="margin-bottom:10px;">
+            <input type="radio" name="recurrence" value="once" id="rec-once" checked>
+            <label for="rec-once">Once</label>
+            <input type="radio" name="recurrence" value="daily" id="rec-daily">
+            <label for="rec-daily">Daily</label>
+          </div>
+          <input type="datetime-local" name="scheduled_time" style="margin-bottom:8px;">
+          <input type="time" name="daily_time">
+        </div>
+
+        <button type="submit" class="btn-run">
+          <span class="btn-run-inner">Add Schedule</span>
+        </button>
+        <div id="new-schedule-status" class="status-text"></div>
+      </form>
+  </div>
+
+  <h1 class="section-title">Active Schedules</h1>
+  <div class="panel">
+    <div class="table-scroll">
+    <table class="runs-table">
+      <thead>
+        <tr><th>Topic</th><th>Recurrence</th><th>When</th><th>Platforms</th><th>Status</th><th>Last run</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for entry in schedules %}
+        <tr data-id="{{ entry.id }}">
+          <td>{{ entry.topic }}</td>
+          <td>{{ entry.recurrence }}</td>
+          <td>{{ entry.scheduled_time or entry.daily_time }}</td>
+          <td>{{ entry.platforms | join(", ") }}</td>
+          <td>{{ entry.status }}</td>
+          <td>{% if entry.last_run_id %}<a href="/runs/{{ entry.last_run_id }}">{{ entry.last_run_id }}</a>{% else %}-{% endif %}</td>
+          <td>
+            {% if entry.status == "active" %}
+              <button type="button" class="btn-secondary cancel-schedule" data-id="{{ entry.id }}">Cancel</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7">No scheduled topics yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll(".toggle-chip input[type=checkbox]").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        cb.closest(".toggle-chip").classList.toggle("checked", cb.checked);
+      });
+    });
+  </script>
+  <script src="/static/schedule.js?v={{ asset_version }}"></script>
+{% endblock %}

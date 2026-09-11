@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: content-automation-engine
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: content-engine-data
+      mountPath: /data
+      sizeGB: 5
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: UPLOAD_PRIVACY_STATUS
+        value: private
+      - key: WORK_DIR
+        value: /data/work
+      - key: DB_PATH
+        value: /data/content_engine.db
+      - key: DASHBOARD_MAX_WORKERS
+        value: "2"
+      - key: SCHEDULER_POLL_INTERVAL_S
+        value: "30"
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+      - key: INSTAGRAM_ACCESS_TOKEN
+        sync: false
+      - key: INSTAGRAM_BUSINESS_ACCOUNT_ID
+        sync: false
+      - key: TIKTOK_CLIENT_KEY
+        sync: false
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: NOTIFICATIONS_ENABLED
+        value: "false"
+      - key: NOTIFY_DESKTOP_ENABLED
+        value: "false"

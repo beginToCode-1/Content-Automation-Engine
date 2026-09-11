@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy - Content Engine{% endblock %}
+{% block breadcrumb %}Privacy{% endblock %}
+{% block page_title %}Privacy Policy{% endblock %}
+{% block page_header_action %}{% endblock %}
+{% block content %}
+<div class="doc-page">
+  <p class="doc-updated">Last updated: September 4, 2026</p>
+
+  <p>Content Engine is a self-hosted application. It runs on the operator's own computer and is
+  not a hosted service operated by a separate company. There is no remote server collecting your
+  data on the developer's behalf. This policy describes how the application itself handles data
+  on the machine it runs on, and which third-party services it connects to on your behalf.</p>
+
+  <h2>Data This Application Stores Locally</h2>
+  <p>All of the following is stored only in a local SQLite database and local files on the
+  machine running the application, never transmitted to any server operated by the developer:</p>
+  <ul>
+    <li>Topics you enter to start a run</li>
+    <li>Metadata about source videos found through YouTube search (title, description, video ID)</li>
+    <li>Downloaded video files and the rendered clips produced from them</li>
+    <li>Transcripts fetched for source videos</li>
+    <li>Titles, descriptions, and hashtags generated for each clip</li>
+    <li>Run history and scheduled topics you configure</li>
+    <li>OAuth access tokens and API credentials for the platforms you connect (Google, Instagram, TikTok)</li>
+  </ul>
+
+  <h2>Third-Party Services</h2>
+  <p>To do its job, this application makes requests to the following third-party services using
+  credentials the operator supplies. Each service's own privacy policy governs how it handles
+  data sent to it:</p>
+  <ul>
+    <li>YouTube Data API (Google) - used to search for and download source video content</li>
+    <li>Google Gemini API - used to generate clip titles, descriptions, and hashtags</li>
+    <li>Instagram Graph API (Meta) - used to publish content to a connected Instagram account</li>
+    <li>TikTok Content Posting API - used to publish content to a connected TikTok account</li>
+  </ul>
+
+  <h2>No Analytics or Tracking</h2>
+  <p>This application does not include any analytics, telemetry, or third-party tracking scripts.
+  It does not use cookies beyond what is required to operate the local web dashboard in your
+  browser during a session.</p>
+
+  <h2>Data Control</h2>
+  <p>Because everything is stored locally, the operator has full control over this data at all
+  times. Deleting the local database file and the application's working directory removes all
+  stored run history, credentials, and generated media.</p>
+
+  <h2>Contact</h2>
+  <p>This application has no separate operating company. Questions about a specific deployment
+  should be directed to whoever operates that instance.</p>
+</div>
+{% endblock %}

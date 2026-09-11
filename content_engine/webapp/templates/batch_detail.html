@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Batch {{ batch.batch_id }} - Content Engine{% endblock %}
+{% block nav_batch %}active{% endblock %}
+{% block breadcrumb %}Batch{% endblock %}
+{% block page_title %}{{ batch.topic }}{% endblock %}
+{% block page_header_action %}
+  <a href="/batch" class="btn-header-action">Back to Batches</a>
+{% endblock %}
+{% block content %}
+  <p class="meta-line" style="margin-bottom:20px; margin-top:-14px;">
+    <span class="badge badge-{{ 'running' if batch.status == 'running' else batch.status }}" id="batch-status">{{ batch.status }}</span>
+    &middot; {{ batch.videos_count }} video(s) &times; {{ batch.clips_per_video }} clip(s)
+    &middot; Platforms: {{ batch.platforms | join(", ") }}
+    &middot; Stagger: {{ batch.stagger_gap_minutes }} min
+  </p>
+
+  {% if batch.error_message %}
+    <p class="error">{{ batch.error_message }}</p>
+  {% endif %}
+
+  <div class="panel">
+    <div class="table-scroll">
+    <table class="runs-table">
+      <thead>
+        <tr><th>Video</th><th>Clip</th><th>Title</th><th>Status</th><th>Scheduled upload</th></tr>
+      </thead>
+      <tbody id="batch-clips-body">
+        {% for clip in clips %}
+        <tr>
+          <td>{{ clip.video_rank }}</td>
+          <td>{{ clip.clip_rank }}</td>
+          <td><a href="/runs/{{ clip.run_id }}">{{ clip.metadata_title or clip.run_id }}</a></td>
+          <td>
+            {% if clip.status == "succeeded" and clip.scheduled_upload_at %}
+              <span class="badge badge-queued">queued</span>
+            {% else %}
+              <span class="badge badge-{{ clip.status }}">{{ clip.status }}</span>
+            {% endif %}
+          </td>
+          <td>{{ clip.scheduled_upload_at or "-" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Generating clips...</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <script>
+    const BATCH_ID = {{ batch.batch_id | tojson }};
+  </script>
+  <script src="/static/batch.js?v={{ asset_version }}"></script>
+{% endblock %}

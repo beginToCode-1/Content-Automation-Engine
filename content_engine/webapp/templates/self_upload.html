@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Upload - Content Engine{% endblock %}
+{% block nav_upload %}active{% endblock %}
+{% block breadcrumb %}Upload{% endblock %}
+{% block page_title %}Upload &amp; Ingestion{% endblock %}
+{% block page_subtitle %}Import your own video, generate a metadata draft, and publish it to your platforms.{% endblock %}
+{% block content %}
+  <div class="info-banner">
+    <span class="info-banner-icon">i</span>
+    <span class="info-banner-text">Your video is not modified in any way. Generating a draft only creates
+      suggested metadata - nothing publishes until you review and confirm on the next step.</span>
+  </div>
+
+  <div class="panel form-panel" id="draft-panel">
+    <div class="panel-header">
+      <h2>Upload Your Own Video</h2>
+    </div>
+
+      <form id="draft-form">
+        <div class="field">
+          <label class="field-label">Video file</label>
+          <input type="file" id="upload-file" name="file" accept="video/mp4" required hidden>
+
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Choose a video file">
+            <div class="dropzone-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 16V4M12 4l-4 4M12 4l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div class="dropzone-text">Click to upload or drag and drop</div>
+            <div class="dropzone-tags"><span class="format-tag">MP4</span></div>
+          </div>
+
+          <div class="file-card" id="file-card" hidden>
+            <div class="file-card-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="2"/><path d="M10 9l5 3-5 3V9z" fill="currentColor"/></svg>
+            </div>
+            <div class="file-card-info">
+              <div class="file-card-name" id="file-card-name"></div>
+              <div class="file-card-meta" id="file-card-meta"></div>
+            </div>
+            <button type="button" class="btn-icon" id="file-card-remove" title="Remove file" aria-label="Remove file">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+
+          <div class="field-hint">Uploaded as-is - no cropping, captions, or re-encoding.</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="upload-hint">Topic or context hint</label>
+          <input type="text" id="upload-hint" name="hint" placeholder="e.g. morning workout routine" required>
+          <div class="field-hint">A short description used to generate the title, description, and hashtags.</div>
+        </div>
+
+        <button type="submit" class="btn-run">
+          <span class="btn-run-inner">Generate Draft</span>
+        </button>
+        <div id="draft-status" class="status-text"></div>
+      </form>
+  </div>
+
+  <div class="panel form-panel" id="publish-panel" hidden style="margin-top: 20px;">
+    <div class="panel-header">
+      <h2>Review and Publish</h2>
+    </div>
+
+      <form id="publish-form">
+        <div class="field">
+          <label class="field-label" for="publish-title">Title</label>
+          <input type="text" id="publish-title" name="title" required>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="publish-description">Description</label>
+          <input type="text" id="publish-description" name="description">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="publish-hashtags">Hashtags (comma-separated)</label>
+          <input type="text" id="publish-hashtags" name="hashtags">
+        </div>
+
+        <div class="field">
+          <label class="field-label">Target channels</label>
+          <div class="toggle-row">
+            <label class="toggle-chip checked" data-chip>
+              <input type="checkbox" name="platforms" value="youtube" checked>
+              <span class="icon-badge icon-yt">YT</span> YouTube
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="instagram">
+              <span class="icon-badge icon-ig">IG</span> Instagram
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="tiktok">
+              <span class="icon-badge icon-tt">TT</span> TikTok
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Upload privacy</label>
+          <div class="segmented">
+            <input type="radio" name="privacy" value="private" id="publish-privacy-private" checked>
+            <label for="publish-privacy-private">Private</label>
+            <input type="radio" name="privacy" value="public" id="publish-privacy-public">
+            <label for="publish-privacy-public">Public</label>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-run">
+          <span class="btn-run-inner">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
+            Publish
+          </span>
+        </button>
+        <div id="publish-status" class="status-text"></div>
+      </form>
+  </div>
+
+  <script>
+    document.querySelectorAll(".toggle-chip input[type=checkbox]").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        cb.closest(".toggle-chip").classList.toggle("checked", cb.checked);
+      });
+    });
+  </script>
+  <script src="/static/self-upload.js?v={{ asset_version }}"></script>
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Runs & Library - Content Engine{% endblock %}
+{% block nav_runs %}active{% endblock %}
+{% block breadcrumb %}Runs{% endblock %}
+{% block page_title %}Runs &amp; Library{% endblock %}
+{% block page_subtitle %}Every run across Studio, Batch, and Upload - search, filter, and retry failed jobs.{% endblock %}
+{% block content %}
+  <div class="library-toolbar">
+    <div class="search-input-wrap">
+      <span class="search-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <input type="text" id="library-search" placeholder="Search runs by topic or title...">
+    </div>
+    <div class="filter-tabs" id="status-filter-tabs">
+      <button type="button" class="active" data-status="all">All ({{ runs | length }})</button>
+      <button type="button" data-status="succeeded">Succeeded ({{ succeeded_count }})</button>
+      <button type="button" data-status="failed">Failed ({{ failed_count }})</button>
+    </div>
+    <select class="platform-select" id="platform-filter">
+      <option value="">All Platforms</option>
+      <option value="youtube">YouTube</option>
+      <option value="instagram">Instagram</option>
+      <option value="tiktok">TikTok</option>
+    </select>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Recent Runs</h2>
+      <span class="status-pill" id="library-count-label">Showing {{ runs | length }} of {{ runs | length }} runs</span>
+    </div>
+    <div class="table-scroll">
+    <table class="runs-table">
+      <thead>
+        <tr><th>Video &amp; Topic</th><th>Status</th><th>Stage</th><th>Platforms</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody id="library-rows">
+        {% for run in runs %}
+        <tr data-status="{{ run.status }}" data-platforms="{{ run.target_platforms }}" data-search="{{ (run.topic ~ ' ' ~ (run.metadata_title or '')) | lower }}">
+          <td>
+            <a href="/runs/{{ run.run_id }}">{{ run.topic }}</a>
+            {% if run.metadata_title and run.metadata_title != run.topic %}
+              <span class="run-title-sub">{{ run.metadata_title }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if run.status == "succeeded" and run.scheduled_upload_at %}
+              <span class="badge badge-queued">queued</span>
+            {% elif run.status == "failed" %}
+              <span class="badge badge-failed diagnostic-trigger" data-run-id="{{ run.run_id }}" style="cursor:pointer;" title="Click for diagnostics">failed</span>
+            {% else %}
+              <span class="badge badge-{{ run.status }}">{{ run.status }}</span>
+            {% endif %}
+          </td>
+          <td>{{ run.current_stage or "-" }}</td>
+          <td>{{ run.platforms | join(", ") }}</td>
+          <td data-timestamp="{{ run.created_at }}">{{ run.created_at }}</td>
+          <td>
+            <div class="row-actions">
+              <button type="button" class="btn-icon preview-trigger" data-run-id="{{ run.run_id }}" title="Play preview">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
+              </button>
+              <button type="button" class="btn-icon metadata-trigger" data-run-id="{{ run.run_id }}" title="Inspect metadata">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 2h9l5 5v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 13h6M9 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>
+              {% if run.status == "failed" %}
+                <button type="button" class="btn-secondary btn-retry retry-btn" data-run-id="{{ run.run_id }}">Retry</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No runs yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <script src="/static/modals.js?v={{ asset_version }}"></script>
+  <script src="/static/runs-library.js?v={{ asset_version }}"></script>
+{% endblock %}

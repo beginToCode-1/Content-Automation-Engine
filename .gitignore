@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+config/client_secret.json
+config/token.json
+config/tiktok_token.json
+work/
+content_engine.db
+content_engine.db-wal
+content_engine.db-shm
+
+# Frontend (web/)
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local
+web/.env*.local
+web/npm-debug.log*
+

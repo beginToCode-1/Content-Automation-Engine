@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Batch - Content Engine{% endblock %}
+{% block nav_batch %}active{% endblock %}
+{% block breadcrumb %}Batch{% endblock %}
+{% block page_title %}Batch Engine{% endblock %}
+{% block page_subtitle %}Slice one topic into multiple clips across videos, with staggered multi-channel publication.{% endblock %}
+{% block content %}
+  <div class="info-banner">
+    <span class="info-banner-icon">i</span>
+    <span class="info-banner-text">Each clip is generated up front, then queued for upload at a staggered time.
+      You can review or cancel any individual clip's scheduled upload from its own run page before it fires.</span>
+  </div>
+
+  <div class="panel form-panel">
+    <div class="panel-header">
+      <h2>New Batch Run</h2>
+    </div>
+
+      <form id="new-batch-form">
+        <div class="field">
+          <label class="field-label" for="batch-topic">Focus topic</label>
+          <input type="text" id="batch-topic" name="topic" placeholder="e.g. stoic philosophy" required>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Target channels</label>
+          <div class="toggle-row">
+            <label class="toggle-chip checked" data-chip>
+              <input type="checkbox" name="platforms" value="youtube" checked>
+              <span class="icon-badge icon-yt">YT</span> YouTube
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="instagram">
+              <span class="icon-badge icon-ig">IG</span> Instagram
+            </label>
+            <label class="toggle-chip" data-chip>
+              <input type="checkbox" name="platforms" value="tiktok">
+              <span class="icon-badge icon-tt">TT</span> TikTok
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <label class="field-label" for="batch-videos-count" style="margin-bottom:0;">Source videos</label>
+            <span class="yield-indicator" id="batch-yield-indicator">Yield: 6 Scheduled Shorts</span>
+          </div>
+          <input type="number" id="batch-videos-count" name="videos_count" value="2" min="1" max="{{ max_videos }}" required style="margin-top:8px;">
+          <div class="field-hint">Up to {{ max_videos }} different source videos for this topic.</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="batch-clips-per-video">Clips per video</label>
+          <input type="number" id="batch-clips-per-video" name="clips_per_video" value="3" min="1" max="{{ max_clips_per_video }}" required>
+          <div class="field-hint">Up to {{ max_clips_per_video }} non-overlapping clips extracted from each video.</div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="batch-stagger">Time between uploads (minutes)</label>
+          <input type="number" id="batch-stagger" name="stagger_gap_minutes" value="{{ default_stagger_minutes }}" min="1" required>
+          <div class="field-hint">Each clip uploads this many minutes after the previous one, so they don't all post at once.</div>
+          <div class="stagger-timeline" id="batch-stagger-timeline"></div>
+        </div>
+
+        <div class="field">
+          <label class="field-label">Upload privacy</label>
+          <div class="segmented">
+            <input type="radio" name="privacy" value="private" id="batch-privacy-private" checked>
+            <label for="batch-privacy-private">Private</label>
+            <input type="radio" name="privacy" value="public" id="batch-privacy-public">
+            <label for="batch-privacy-public">Public</label>
+          </div>
+          <div class="field-hint">Batch uploads use this setting exactly as chosen - a public choice will actually go
+            live automatically once its scheduled time arrives, even if you are away.</div>
+        </div>
+
+        <button type="submit" class="btn-run">
+          <span class="btn-run-inner">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
+            Start Batch
+          </span>
+        </button>
+        <div id="new-batch-status" class="status-text"></div>
+      </form>
+    </div>
+
+  <h1 class="section-title">Recent Batches</h1>
+  <div class="panel">
+    <div class="table-scroll">
+    <table class="runs-table">
+      <thead>
+        <tr><th>Topic</th><th>Status</th><th>Videos</th><th>Clips/Video</th><th>Platforms</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {% for batch in batches %}
+        <tr>
+          <td><a href="/batch/{{ batch.batch_id }}">{{ batch.topic }}</a></td>
+          <td><span class="badge badge-{{ 'running' if batch.status == 'running' else batch.status }}">{{ batch.status }}</span></td>
+          <td>{{ batch.videos_count }}</td>
+          <td>{{ batch.clips_per_video }}</td>
+          <td>{{ batch.platforms | join(", ") }}</td>
+          <td data-timestamp="{{ batch.created_at }}">{{ batch.created_at }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No batches yet. Start one above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll(".toggle-chip input[type=checkbox]").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        cb.closest(".toggle-chip").classList.toggle("checked", cb.checked);
+      });
+    });
+  </script>
+  <script src="/static/batch.js?v={{ asset_version }}"></script>
+{% endblock %}
