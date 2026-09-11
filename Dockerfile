@@ -19,4 +19,4 @@ RUN mkdir -p /app/work /app/config
 
 EXPOSE 8000
 
-CMD ["python", "run.py"]
+CMD ["python", "dashboard.py"]
