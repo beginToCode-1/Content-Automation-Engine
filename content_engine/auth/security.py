@@ -6,6 +6,7 @@ import jwt
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_TTL = timedelta(days=7)
 OAUTH_STATE_TTL = timedelta(minutes=10)
+CONNECT_TICKET_TTL = timedelta(minutes=2)
 
 
 def hash_password(password: str) -> str:
@@ -54,4 +55,27 @@ def decode_oauth_state_token(secret_key: str, token: str) -> str:
     payload = jwt.decode(token, secret_key, algorithms=[JWT_ALGORITHM])
     if payload.get("purpose") != "oauth_state":
         raise ValueError("Not an OAuth state token")
+    return payload["sub"]
+
+
+def create_connect_ticket_token(secret_key: str, user_id: str) -> str:
+    """Short-lived, single-purpose token for GET /oauth/youtube/connect - that
+    endpoint is a full browser navigation (Google's consent screen redirects
+    the user's browser there directly), so it can't receive an Authorization
+    header the way a fetch() call would, and the query string is the only
+    place to put anything. Using the real 7-day session JWT there would put a
+    long-lived, full-access credential in server access logs, browser history,
+    and any Referer header - this ticket is scoped to only this one purpose
+    and expires in minutes, so a leaked copy is far less useful."""
+    now = datetime.now(timezone.utc)
+    payload = {"sub": user_id, "purpose": "connect_ticket", "iat": now, "exp": now + CONNECT_TICKET_TTL}
+    return jwt.encode(payload, secret_key, algorithm=JWT_ALGORITHM)
+
+
+def decode_connect_ticket_token(secret_key: str, token: str) -> str:
+    """Returns the user_id. Raises jwt.PyJWTError on any failure, or ValueError
+    if the token is well-formed but wasn't issued for this purpose."""
+    payload = jwt.decode(token, secret_key, algorithms=[JWT_ALGORITHM])
+    if payload.get("purpose") != "connect_ticket":
+        raise ValueError("Not a connect ticket token")
     return payload["sub"]

@@ -6,8 +6,14 @@ from typing import Literal
 from content_engine.errors import RenderFailedError
 
 
+_TIMEOUT_S = 600
+
+
 def _run(args: list[str]) -> subprocess.CompletedProcess:
-    result = subprocess.run(args, capture_output=True, text=True)
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=_TIMEOUT_S)
+    except subprocess.TimeoutExpired as e:
+        raise RenderFailedError(f"Command timed out after {_TIMEOUT_S}s: {' '.join(args)}") from e
     if result.returncode != 0:
         stderr_tail = "\n".join(result.stderr.splitlines()[-20:])
         raise RenderFailedError(f"Command failed: {' '.join(args)}\n{stderr_tail}")
@@ -84,7 +90,15 @@ def _escape_filter_path(path: Path) -> str:
 
 
 def _escape_drawtext(text: str) -> str:
-    return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    # "%" must be escaped too - ffmpeg's drawtext defaults to expansion=normal,
+    # which otherwise interprets "%{...}" sequences in arbitrary (user/topic-
+    # supplied) title text as expansion directives instead of literal text.
+    return (
+        text.replace("\\", "\\\\")
+        .replace(":", "\\:")
+        .replace("'", "\\'")
+        .replace("%", "\\%")
+    )
 
 
 def burn_captions(src: Path, srt_path: Path, dest: Path, title_text: str | None = None) -> None:

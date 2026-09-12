@@ -1,3 +1,4 @@
+import sqlite3
 import uuid
 from pathlib import Path
 
@@ -27,6 +28,32 @@ def create_user(db_path: Path, email: str, password_hash: str, role: str) -> dic
     finally:
         conn.close()
     return {"id": user_id, "email": email, "role": role}
+
+
+def create_user_with_bootstrap_role(db_path: Path, email: str, password_hash: str) -> dict:
+    """Same "first account ever becomes admin, everyone after that is viewer"
+    rule the register route used to compute via a separate count_users() call
+    followed by create_user() - but atomically, via BEGIN IMMEDIATE, so two
+    concurrent registrations hitting a fresh deployment at once can't both
+    observe zero users and both become admin (the second blocks on the write
+    lock until the first commits, then correctly sees count=1)."""
+    user_id = uuid.uuid4().hex
+    conn = get_connection(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        count = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+        role = "admin" if count == 0 else "viewer"
+        conn.execute(
+            "INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?)",
+            (user_id, email, password_hash, role),
+        )
+        conn.commit()
+        return {"id": user_id, "email": email, "role": role}
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def get_user_by_email(db_path: Path, email: str) -> dict | None:

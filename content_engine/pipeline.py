@@ -109,6 +109,12 @@ def upload_clip_to_platforms(
     upload_outcomes: list[PlatformUploadOutcome] = []
     for platform in platforms:
         try:
+            if platform == "youtube" and oauth_client is None:
+                raise UploadFailedError(
+                    "No YouTube OAuth client available for upload - a bare YOUTUBE_API_KEY only "
+                    "supports search, not uploads. Connect a YouTube account or configure the "
+                    "legacy Desktop OAuth client_secret.json."
+                )
             uploader = _build_uploader(platform, oauth_client, settings)
             result = uploader.upload(clip_path, metadata, effective_privacy)
             outcome = PlatformUploadOutcome(platform=platform, result=result)

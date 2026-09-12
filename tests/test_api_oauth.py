@@ -33,14 +33,26 @@ def _auth_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_connect_requires_a_valid_token(client):
-    res = client.get("/api/oauth/youtube/connect", params={"token": "not-a-real-token"})
+def _get_ticket(client, access_token):
+    res = client.post("/api/oauth/youtube/connect-ticket", headers=_auth_headers(access_token))
+    assert res.status_code == 200, res.text
+    return res.json()["ticket"]
+
+
+def test_connect_ticket_requires_auth(client):
+    res = client.post("/api/oauth/youtube/connect-ticket")
+    assert res.status_code == 401
+
+
+def test_connect_requires_a_valid_ticket(client):
+    res = client.get("/api/oauth/youtube/connect", params={"ticket": "not-a-real-ticket"})
     assert res.status_code == 401
 
 
 def test_connect_redirects_to_google(client):
     user = _register(client)
-    res = client.get("/api/oauth/youtube/connect", params={"token": user["access_token"]})
+    ticket = _get_ticket(client, user["access_token"])
+    res = client.get("/api/oauth/youtube/connect", params={"ticket": ticket})
     assert res.status_code == 302
     assert "accounts.google.com" in res.headers["location"]
 
@@ -60,7 +72,8 @@ def test_callback_with_invalid_state_redirects_with_error(client):
 def test_callback_success_stores_connected_account(client):
     user = _register(client)
 
-    connect_res = client.get("/api/oauth/youtube/connect", params={"token": user["access_token"]})
+    ticket = _get_ticket(client, user["access_token"])
+    connect_res = client.get("/api/oauth/youtube/connect", params={"ticket": ticket})
     state = connect_res.headers["location"].split("state=")[1].split("&")[0]
 
     fake_creds = MagicMock(token="access-tok", refresh_token="refresh-tok", scopes=["scope-a"], expiry=None)
@@ -94,7 +107,8 @@ def test_disconnect_account_requires_ownership(client):
     user_a = _register(client, "a@example.com")
     user_b = _register(client, "b@example.com")
 
-    connect_res = client.get("/api/oauth/youtube/connect", params={"token": user_a["access_token"]})
+    ticket = _get_ticket(client, user_a["access_token"])
+    connect_res = client.get("/api/oauth/youtube/connect", params={"ticket": ticket})
     state = connect_res.headers["location"].split("state=")[1].split("&")[0]
     fake_creds = MagicMock(token="t", refresh_token="r", scopes=[], expiry=None)
     with patch(

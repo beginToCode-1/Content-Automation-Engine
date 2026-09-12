@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
 from content_engine.auth import google_oauth
-from content_engine.auth.security import create_oauth_state_token, decode_access_token, decode_oauth_state_token
+from content_engine.auth.security import (
+    create_connect_ticket_token,
+    create_oauth_state_token,
+    decode_connect_ticket_token,
+    decode_oauth_state_token,
+)
 from content_engine.config import Settings
 from content_engine.db import connected_accounts_repo
 from content_engine.errors import ConfigError
@@ -21,18 +26,31 @@ def _frontend_redirect(settings: Settings, path: str) -> str:
     return f"{base}{path}"
 
 
+@router.post("/oauth/youtube/connect-ticket")
+async def create_connect_ticket(
+    settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
+):
+    """Issues a short-lived (2 minute), single-purpose ticket for the frontend
+    to pass to GET /oauth/youtube/connect below, minted via a normal
+    authenticated fetch() (Authorization header) - so the long-lived 7-day
+    session JWT itself never has to appear in a URL, server access logs, or
+    browser history."""
+    ticket = create_connect_ticket_token(settings.jwt_secret_key, user["id"])
+    return {"ticket": ticket}
+
+
 @router.get("/oauth/youtube/connect")
 async def connect_youtube(
-    token: str = Query(..., description="A normal session JWT, passed as a query param since this "
-    "endpoint is a full browser navigation (Google redirects the user's browser here directly, so "
-    "there's no way to attach an Authorization header the way a fetch() call would)."),
+    ticket: str = Query(..., description="A short-lived connect ticket from POST "
+    "/oauth/youtube/connect-ticket, passed as a query param since this endpoint is a full browser "
+    "navigation (Google redirects the user's browser here directly, so there's no way to attach an "
+    "Authorization header the way a fetch() call would)."),
     settings: Settings = Depends(get_settings),
 ):
     try:
-        payload = decode_access_token(settings.jwt_secret_key, token)
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user_id = payload["sub"]
+        user_id = decode_connect_ticket_token(settings.jwt_secret_key, ticket)
+    except (jwt.PyJWTError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid or expired ticket")
 
     try:
         state = create_oauth_state_token(settings.jwt_secret_key, user_id)
@@ -92,7 +110,10 @@ async def list_accounts(settings: Settings = Depends(get_settings), user: dict =
 async def disconnect_account(
     account_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
 ):
-    deleted = connected_accounts_repo.delete_account(settings.db_path, account_id, user["id"])
+    try:
+        deleted = connected_accounts_repo.delete_account(settings.db_path, account_id, user["id"])
+    except connected_accounts_repo.AccountInUseError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     if not deleted:
         raise HTTPException(status_code=404, detail="Connected account not found")
     return {"deleted": True}

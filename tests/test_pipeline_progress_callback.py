@@ -18,6 +18,7 @@ def _fake_settings(tmp_path):
         gemini_model="gemini-3.6-flash",
         youtube_api_key="fake-youtube-key",
         upload_privacy_status="private",
+        log_level="INFO",
         work_dir=tmp_path,
         client_secret_path=tmp_path / "client_secret.json",
         token_path=tmp_path / "token.json",

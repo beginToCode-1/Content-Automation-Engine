@@ -61,9 +61,9 @@ def generate_metadata(topic: str, segment_text: str, model: str, api_key: str) -
     if not title:
         raise MetadataGenerationError("Gemini response produced an empty title")
 
-    if "shorts" not in title.lower():
-        suffix = " #Shorts"
-        title = title[: _MAX_TITLE_LEN - len(suffix)] + suffix
+    # No platform-specific branding here (e.g. "#Shorts") - this metadata is
+    # shared verbatim across every requested platform's uploader; YouTube-only
+    # touches belong in youtube_uploader.py instead.
     title = title[:_MAX_TITLE_LEN]
 
     return ClipMetadata(title=title, description=description, hashtags=hashtags)

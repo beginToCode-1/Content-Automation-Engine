@@ -81,18 +81,24 @@ function AccountsPageInner() {
     };
   }, []);
 
-  function handleConnect() {
-    // Not a normal apiFetch() call - Google's consent screen has to redirect
-    // back to our own backend, so there's no way to attach a fetch
-    // Authorization header the way the rest of the app does. This is a full
-    // browser navigation instead; the backend reads the JWT from ?token=.
+  async function handleConnect() {
+    // The final navigation to the backend has to be a full browser redirect
+    // (Google's consent screen redirects back to our own backend, so there's
+    // no way to attach a fetch Authorization header the way the rest of the
+    // app does) - but we still fetch a short-lived, single-purpose ticket
+    // first via a normal authenticated apiFetch() call, rather than putting
+    // the long-lived session token itself in the URL (server logs, browser
+    // history, and any Referer header would otherwise see it).
     if (!token) return;
-    // Intentionally a full cross-origin navigation to the backend (not a
-    // Next.js route) - Google's consent screen redirects back to the
-    // backend's own callback, so there's no way to do this as a fetch() with
-    // an Authorization header.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-    window.location.href = `${apiUrl("/api/oauth/youtube/connect")}?token=${token}`;
+    try {
+      const { ticket } = await apiFetch<{ ticket: string }>("/api/oauth/youtube/connect-ticket", {
+        method: "POST",
+      });
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.href = `${apiUrl("/api/oauth/youtube/connect")}?ticket=${ticket}`;
+    } catch (e) {
+      setStatusText("Error: " + (e instanceof Error ? e.message : String(e)));
+    }
   }
 
   async function handleDisconnect(account: Account) {

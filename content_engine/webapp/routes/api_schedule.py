@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,11 @@ from content_engine.webapp.account_selection import resolve_youtube_account_id
 from content_engine.webapp.deps import get_current_user, get_settings, require_admin
 
 router = APIRouter(prefix="/api")
+
+# find_due() compares this lexicographically against the current "HH:MM", so
+# an unpadded hour (e.g. client-supplied "9:00") would sort after "10:15" and
+# never fire - this is the only thing standing between the DB and that bug.
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 # Deliberately no privacy field here - scheduled runs are always forced to
 # private inside the scheduler/pipeline, regardless of any other setting.
@@ -43,10 +49,17 @@ async def create_schedule(
             dt = datetime.fromisoformat(payload.scheduled_time)
         except ValueError:
             raise HTTPException(status_code=400, detail="scheduled_time must be an ISO datetime")
+        if dt.tzinfo is not None:
+            # find_due() compares this against datetime.now() (naive, server-
+            # local wall clock) - converting to the server's own local zone
+            # before stripping tzinfo keeps that comparison meaningful instead
+            # of silently mislabeling e.g. a "+05:00" instant as if it were
+            # already in the server's own local time.
+            dt = dt.astimezone().replace(tzinfo=None)
         scheduled_time_iso = dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     else:
-        if not payload.daily_time:
-            raise HTTPException(status_code=400, detail="daily_time is required for a 'daily' schedule")
+        if not payload.daily_time or not _HHMM_RE.match(payload.daily_time):
+            raise HTTPException(status_code=400, detail="daily_time must be in 24-hour HH:MM format (e.g. 09:00)")
         daily_time = payload.daily_time
 
     platforms = payload.platforms or ["youtube"]

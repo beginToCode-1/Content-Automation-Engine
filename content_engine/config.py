@@ -15,6 +15,7 @@ class Settings:
     gemini_model: str
     youtube_api_key: str | None
     upload_privacy_status: str
+    log_level: str
     work_dir: Path
     client_secret_path: Path
     token_path: Path
@@ -83,6 +84,12 @@ class Settings:
                 f"UPLOAD_PRIVACY_STATUS must be one of private/unlisted/public, got {privacy_status!r}"
             )
 
+        log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+        if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ConfigError(
+                f"LOG_LEVEL must be one of DEBUG/INFO/WARNING/ERROR/CRITICAL, got {log_level!r}"
+            )
+
         work_dir = PROJECT_ROOT / os.getenv("WORK_DIR", "work")
         work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -112,6 +119,7 @@ class Settings:
             gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip(),
             youtube_api_key=(os.getenv("YOUTUBE_API_KEY", "").strip() or None),
             upload_privacy_status=privacy_status,
+            log_level=log_level,
             work_dir=work_dir,
             client_secret_path=client_secret_path,
             token_path=token_path,

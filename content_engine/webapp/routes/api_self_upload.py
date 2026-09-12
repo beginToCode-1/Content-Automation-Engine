@@ -45,7 +45,7 @@ async def create_draft(
         shutil.copyfileobj(file.file, out)
 
     (draft_dir / "draft.json").write_text(
-        json.dumps({"hint": hint, "original_filename": filename}), encoding="utf-8"
+        json.dumps({"hint": hint, "original_filename": filename, "user_id": user["id"]}), encoding="utf-8"
     )
 
     try:
@@ -86,6 +86,13 @@ async def publish_draft(
     if not clip_path.exists():
         raise HTTPException(status_code=404, detail="Draft not found or already published")
 
+    draft_meta_path = draft_dir / "draft.json"
+    draft_meta = json.loads(draft_meta_path.read_text(encoding="utf-8")) if draft_meta_path.exists() else {}
+    # Drafts created before this ownership check existed have no "user_id" key -
+    # fail closed (404) rather than let an old draft be publishable by anyone.
+    if draft_meta.get("user_id") != user["id"]:
+        raise HTTPException(status_code=404, detail="Draft not found or already published")
+
     platforms = payload.platforms or ["youtube"]
     unknown = set(platforms) - VALID_PLATFORMS
     if unknown:
@@ -93,8 +100,6 @@ async def publish_draft(
     if not payload.title.strip():
         raise HTTPException(status_code=400, detail="title is required")
 
-    draft_meta_path = draft_dir / "draft.json"
-    draft_meta = json.loads(draft_meta_path.read_text(encoding="utf-8")) if draft_meta_path.exists() else {}
     topic = draft_meta.get("hint", draft_id)
 
     metadata = ClipMetadata(title=payload.title.strip(), description=payload.description, hashtags=payload.hashtags)

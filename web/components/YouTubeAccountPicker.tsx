@@ -28,6 +28,7 @@ export default function YouTubeAccountPicker({ platforms, value, onChange }: You
   const targetsYouTube = platforms.includes("youtube");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   useEffect(() => {
     if (!targetsYouTube || loaded) return;
@@ -41,8 +42,14 @@ export default function YouTubeAccountPicker({ platforms, value, onChange }: You
       .catch(() => {
         // This component is discoverability-only - if the fetch fails, the
         // form's own submit error handling still surfaces whatever the
-        // backend's POST validation says.
-        if (!cancelled) setLoaded(true);
+        // backend's POST validation says. But still show a distinct message
+        // below rather than silently reusing the "no account connected"
+        // empty state, which would wrongly tell a user with connected
+        // accounts to go add one.
+        if (!cancelled) {
+          setFetchFailed(true);
+          setLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -59,6 +66,14 @@ export default function YouTubeAccountPicker({ platforms, value, onChange }: You
   }, [accounts, value, onChange]);
 
   if (!targetsYouTube || !loaded) return null;
+
+  if (fetchFailed) {
+    return (
+      <div className="field-hint" style={{ marginTop: 8 }}>
+        Couldn&apos;t load your connected YouTube accounts - check your connection and try again.
+      </div>
+    );
+  }
 
   if (accounts.length === 0) {
     return (

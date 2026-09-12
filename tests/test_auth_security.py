@@ -1,7 +1,14 @@
 import jwt
 import pytest
 
-from content_engine.auth.security import create_access_token, decode_access_token, hash_password, verify_password
+from content_engine.auth.security import (
+    create_access_token,
+    create_connect_ticket_token,
+    decode_access_token,
+    decode_connect_ticket_token,
+    hash_password,
+    verify_password,
+)
 
 
 def test_hash_password_is_not_plaintext():
@@ -47,3 +54,16 @@ def test_decode_access_token_rejects_expired_token(monkeypatch):
 
     with pytest.raises(jwt.PyJWTError):
         decode_access_token("secret", token)
+
+
+def test_create_and_decode_connect_ticket_token_round_trips_user_id():
+    ticket = create_connect_ticket_token("secret", "user-1")
+    assert decode_connect_ticket_token("secret", ticket) == "user-1"
+
+
+def test_decode_connect_ticket_token_rejects_a_regular_access_token():
+    # A leaked normal session token must not work as a connect ticket - the
+    # "purpose" claim is what keeps the two token kinds from being interchangeable.
+    token = create_access_token("secret", "user-1", "a@example.com", "admin")
+    with pytest.raises(ValueError):
+        decode_connect_ticket_token("secret", token)

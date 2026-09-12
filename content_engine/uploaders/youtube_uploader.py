@@ -8,6 +8,7 @@ from content_engine.models import ClipMetadata, UploadResult
 from content_engine.uploaders.base import Uploader
 
 DEFAULT_CATEGORY_ID = "22"  # People & Blogs
+_MAX_TITLE_LEN = 100
 
 
 class YouTubeUploader(Uploader):
@@ -20,9 +21,15 @@ class YouTubeUploader(Uploader):
         if metadata.hashtags:
             description = description + "\n\n" + " ".join(f"#{tag}" for tag in metadata.hashtags)
 
+        title = metadata.title
+        if "shorts" not in title.lower():
+            suffix = " #Shorts"
+            title = title[: _MAX_TITLE_LEN - len(suffix)] + suffix
+        title = title[:_MAX_TITLE_LEN]
+
         body = {
             "snippet": {
-                "title": metadata.title,
+                "title": title,
                 "description": description,
                 "tags": metadata.hashtags,
                 "categoryId": self._category_id,

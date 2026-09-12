@@ -126,11 +126,28 @@ def _execute_batch(
         )
     except PipelineError as e:
         logger.error("Batch %s generation failed: %s", batch_id, e)
-        batches_repo.mark_batch_finished(settings.db_path, batch_id, "failed", error_message=str(e))
+        # A clip already generated (and queued via on_clip_ready) before this
+        # error is real, finished work - don't mark the whole batch "failed"
+        # out from under clips that already succeeded and are pending upload.
+        if clip_index > 0:
+            batches_repo.mark_batch_finished(
+                settings.db_path, batch_id, "succeeded",
+                error_message=f"Stopped early after {clip_index} clip(s): {e}",
+            )
+        else:
+            batches_repo.mark_batch_finished(settings.db_path, batch_id, "failed", error_message=str(e))
         return
     except Exception as e:
         logger.exception("Unexpected error generating batch %s", batch_id)
-        batches_repo.mark_batch_finished(settings.db_path, batch_id, "failed", error_message=f"Unexpected error: {e}")
+        if clip_index > 0:
+            batches_repo.mark_batch_finished(
+                settings.db_path, batch_id, "succeeded",
+                error_message=f"Stopped early after {clip_index} clip(s): Unexpected error: {e}",
+            )
+        else:
+            batches_repo.mark_batch_finished(
+                settings.db_path, batch_id, "failed", error_message=f"Unexpected error: {e}"
+            )
         return
 
     if clip_index == 0:

@@ -65,6 +65,20 @@ def insert_run(
         conn.close()
 
 
+def try_reclaim_failed(db_path: Path, run_id: str) -> bool:
+    """Atomically claims a failed run for retry by flipping it to 'running' only
+    if it's still 'failed' - the compare-and-set that stops two concurrent
+    /retry requests (double-click, two tabs) from both proceeding to
+    re-publish the same run_id."""
+    conn = get_connection(db_path)
+    try:
+        cursor = conn.execute("UPDATE runs SET status='running' WHERE run_id=? AND status='failed'", (run_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
 def mark_running(db_path: Path, run_id: str) -> None:
     conn = get_connection(db_path)
     try:
@@ -77,9 +91,26 @@ def mark_running(db_path: Path, run_id: str) -> None:
         conn.close()
 
 
+_UPDATABLE_COLUMNS = {
+    "user_id", "youtube_account_id", "topic", "trigger_source", "schedule_id", "status",
+    "current_stage", "dry_run", "requested_privacy", "effective_privacy", "target_platforms",
+    "source_video_id", "source_video_title", "source_video_url", "segment_start_s", "segment_end_s",
+    "segment_score", "clip_path", "metadata_title", "metadata_description", "metadata_hashtags",
+    "error_message", "work_dir", "started_at", "finished_at", "batch_id", "scheduled_upload_at",
+    "source_type", "video_rank", "clip_rank",
+}
+
+
 def update_fields(db_path: Path, run_id: str, **fields: Any) -> None:
+    """`fields` keys become raw SQL column names (values stay parameterized) -
+    the allowlist below is what stops a future caller that forwards
+    request-derived keys (e.g. **payload.dict()) from injecting arbitrary SQL
+    via the column list. Every current caller passes hardcoded literal kwargs."""
     if not fields:
         return
+    unknown = set(fields) - _UPDATABLE_COLUMNS
+    if unknown:
+        raise ValueError(f"update_fields got unknown runs column(s): {sorted(unknown)}")
     columns = ", ".join(f"{key}=?" for key in fields)
     values = list(fields.values()) + [run_id]
     conn = get_connection(db_path)

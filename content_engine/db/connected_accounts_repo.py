@@ -1,8 +1,14 @@
+import sqlite3
 import uuid
 from pathlib import Path
 
 from content_engine.auth.token_crypto import decrypt_token, encrypt_token
 from content_engine.db.connection import get_connection
+
+
+class AccountInUseError(Exception):
+    """Raised when disconnecting an account is blocked by runs/batches/schedules
+    that still reference it (a foreign-key constraint violation)."""
 
 
 def upsert_account(
@@ -139,20 +145,11 @@ def list_accounts_public(db_path: Path, user_id: str, platform: str | None = Non
         conn.close()
 
 
-def get_account_public(db_path: Path, account_id: str) -> dict | None:
-    conn = get_connection(db_path)
-    try:
-        row = conn.execute(
-            "SELECT id, user_id, platform, account_label, external_account_id, created_at "
-            "FROM connected_accounts WHERE id=?",
-            (account_id,),
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
 def delete_account(db_path: Path, account_id: str, user_id: str) -> bool:
+    """Raises AccountInUseError (instead of a raw sqlite3.IntegrityError) if any
+    run/batch/schedule still references this account - those hold a foreign
+    key on connected_accounts with no ON DELETE clause, so a straight DELETE
+    for a still-referenced row would otherwise 500."""
     conn = get_connection(db_path)
     try:
         cursor = conn.execute(
@@ -160,5 +157,10 @@ def delete_account(db_path: Path, account_id: str, user_id: str) -> bool:
         )
         conn.commit()
         return cursor.rowcount > 0
+    except sqlite3.IntegrityError as e:
+        conn.rollback()
+        raise AccountInUseError(
+            "This account is still referenced by an existing run, batch, or schedule."
+        ) from e
     finally:
         conn.close()

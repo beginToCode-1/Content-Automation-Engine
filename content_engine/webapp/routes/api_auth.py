@@ -46,17 +46,21 @@ async def register(payload: RegisterRequest, settings: Settings = Depends(get_se
     email = payload.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="Enter a valid email address")
-    if not (8 <= len(payload.password) <= 72):
+    # bcrypt's limit is 72 *bytes*, not characters - a password within 72
+    # characters can still exceed 72 bytes once multi-byte UTF-8 characters
+    # are involved, which either silently truncates or raises inside bcrypt
+    # depending on the installed build.
+    password_bytes = payload.password.encode("utf-8")
+    if not (8 <= len(password_bytes) <= 72):
         raise HTTPException(status_code=400, detail="Password must be 8-72 characters")
 
     # First account ever created on this deployment becomes admin; everyone
     # after that defaults to viewer. There is no invite/promotion flow yet -
     # an existing admin has to be promoted directly in the database.
-    role = "admin" if users_repo.count_users(settings.db_path) == 0 else "viewer"
     password_hash = hash_password(payload.password)
 
     try:
-        user = users_repo.create_user(settings.db_path, email, password_hash, role)
+        user = users_repo.create_user_with_bootstrap_role(settings.db_path, email, password_hash)
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 

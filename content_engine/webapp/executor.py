@@ -102,6 +102,27 @@ def _execute(
     force_private: bool,
     youtube_account_id: str | None = None,
 ) -> None:
+    try:
+        _run_execute(
+            settings, run_id, topic, dry_run, privacy_override, target_platforms, force_private, youtube_account_id
+        )
+    finally:
+        # Completed runs' Futures serve no purpose after this point (cancel_run
+        # can't cancel a finished run anyway) - without this, a long-lived
+        # server process accumulates one dict entry per run forever.
+        _futures.pop(run_id, None)
+
+
+def _run_execute(
+    settings: Settings,
+    run_id: str,
+    topic: str,
+    dry_run: bool,
+    privacy_override: str | None,
+    target_platforms: list[str],
+    force_private: bool,
+    youtube_account_id: str | None = None,
+) -> None:
     runs_repo.mark_running(settings.db_path, run_id)
 
     def on_progress(stage: str, message: str) -> None:
@@ -144,16 +165,5 @@ def _execute(
         effective_privacy="private" if force_private else (privacy_override or settings.upload_privacy_status),
     )
 
-    for outcome in result.uploads:
-        uploads_repo.upsert_upload_outcome(
-            settings.db_path,
-            run_id,
-            outcome.platform,
-            status="succeeded" if outcome.result else "failed",
-            video_id=outcome.result.video_id if outcome.result else None,
-            url=outcome.result.url if outcome.result else None,
-            privacy_status=outcome.result.privacy_status if outcome.result else None,
-            error_message=outcome.error,
-        )
-
+    uploads_repo.record_upload_outcomes(settings.db_path, run_id, result.uploads)
     runs_repo.mark_succeeded(settings.db_path, run_id)

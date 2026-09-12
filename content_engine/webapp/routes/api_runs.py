@@ -114,8 +114,21 @@ async def retry_run(
         # The uploaded file and generated metadata were never the problem (the
         # upload attempt was) - retry re-attempts only the upload step against
         # the same clip, instead of restarting a pipeline that doesn't apply here.
+        # Claim the run atomically first: a compare-and-set on status='failed'
+        # so a double-click or a second tab hitting /retry concurrently can't
+        # both pass this check and re-publish the same run_id twice.
+        claimed = await run_in_threadpool(runs_repo.try_reclaim_failed, settings.db_path, run_id)
+        if not claimed:
+            raise HTTPException(status_code=409, detail="This run is already being retried")
+
         clip_path = Path(run["clip_path"]) if run["clip_path"] else None
         if not clip_path or not clip_path.exists():
+            await run_in_threadpool(
+                runs_repo.mark_failed,
+                settings.db_path,
+                run_id,
+                "Original video file is no longer available on disk for retry",
+            )
             raise HTTPException(
                 status_code=409, detail="Original video file is no longer available on disk for retry"
             )

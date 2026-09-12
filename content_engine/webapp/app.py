@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -26,6 +27,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 def create_app() -> FastAPI:
     settings = Settings.load()
+    logging.basicConfig(level=settings.log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

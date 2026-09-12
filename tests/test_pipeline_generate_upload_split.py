@@ -10,6 +10,7 @@ from tests.test_pipeline_progress_callback import _fake_settings
 
 def test_upload_clip_to_platforms_single_failure_raises(tmp_path):
     settings = _fake_settings(tmp_path)
+    settings.youtube_api_key = None  # forces the legacy get_youtube_client() OAuth path, which is what's mocked below
     uploader_instance = MagicMock()
     uploader_instance.upload.side_effect = UploadFailedError("quota exceeded")
 
@@ -32,6 +33,7 @@ def test_upload_clip_to_platforms_single_failure_raises(tmp_path):
 
 def test_upload_clip_to_platforms_partial_success_does_not_raise(tmp_path):
     settings = _fake_settings(tmp_path)
+    settings.youtube_api_key = None  # forces the legacy get_youtube_client() OAuth path, which is what's mocked below
     youtube_instance = MagicMock()
     youtube_instance.upload.return_value = UploadResult(
         video_id="yt1", url="https://youtube.com/shorts/yt1", privacy_status="private"
@@ -62,6 +64,7 @@ def test_upload_clip_to_platforms_partial_success_does_not_raise(tmp_path):
 
 def test_upload_clip_to_platforms_uses_given_privacy_verbatim(tmp_path):
     settings = _fake_settings(tmp_path)
+    settings.youtube_api_key = None  # forces the legacy get_youtube_client() OAuth path, which is what's mocked below
     uploader_instance = MagicMock()
     uploader_instance.upload.return_value = UploadResult(
         video_id="yt1", url="https://youtube.com/shorts/yt1", privacy_status="public"
@@ -87,6 +90,7 @@ def test_upload_clip_to_platforms_uses_given_privacy_verbatim(tmp_path):
 
 def test_upload_clip_to_platforms_fires_notification_when_enabled(tmp_path):
     settings = _fake_settings(tmp_path)
+    settings.youtube_api_key = None  # forces the legacy get_youtube_client() OAuth path, which is what's mocked below
     settings.notifications_enabled = True
     uploader_instance = MagicMock()
     uploader_instance.upload.return_value = UploadResult(

@@ -90,6 +90,11 @@ export default function StudioPage() {
         const data = await apiFetch<{ run: Run; events: RunEventLite[] }>(
           `/api/runs/${runId}?since_id=${sinceIdRef.current}`
         );
+        // The fetch above is async - if the user navigated away (or a newer
+        // run started) while it was in flight, activeRunIdRef has already
+        // moved on, so this stale response's state updates must be dropped.
+        if (activeRunIdRef.current !== runId) return;
+
         for (const event of data.events) {
           sinceIdRef.current = Math.max(sinceIdRef.current, event.id);
         }
