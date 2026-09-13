@@ -2,12 +2,12 @@ import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
 
-from content_engine.config import Settings
 from content_engine.db import schedules_repo
 from content_engine.webapp.account_selection import resolve_youtube_account_id
-from content_engine.webapp.deps import get_current_user, get_settings, require_admin
+from content_engine.webapp.deps import get_current_user, get_db_pool, require_admin
 
 router = APIRouter(prefix="/api")
 
@@ -31,7 +31,9 @@ class NewScheduleRequest(BaseModel):
 
 @router.post("/schedule", status_code=201)
 async def create_schedule(
-    payload: NewScheduleRequest, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+    payload: NewScheduleRequest,
+    pool: ConnectionPool = Depends(get_db_pool),
+    user: dict = Depends(require_admin),
 ):
     topic = payload.topic.strip()
     if not topic:
@@ -63,10 +65,10 @@ async def create_schedule(
         daily_time = payload.daily_time
 
     platforms = payload.platforms or ["youtube"]
-    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
+    youtube_account_id = resolve_youtube_account_id(pool, user, platforms, payload.youtube_account_id)
 
     schedule_id = schedules_repo.insert_schedule(
-        settings.db_path,
+        pool,
         topic,
         payload.recurrence,
         platforms,
@@ -79,15 +81,15 @@ async def create_schedule(
 
 
 @router.get("/schedule")
-async def list_schedules(settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)):
-    return {"schedules": schedules_repo.list_active(settings.db_path, user["id"])}
+async def list_schedules(pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)):
+    return {"schedules": schedules_repo.list_active(pool, user["id"])}
 
 
 @router.post("/schedule/{schedule_id}/cancel")
 async def cancel_schedule(
-    schedule_id: int, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+    schedule_id: int, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(require_admin)
 ):
-    cancelled = schedules_repo.cancel(settings.db_path, schedule_id, user["id"])
+    cancelled = schedules_repo.cancel(pool, schedule_id, user["id"])
     if not cancelled:
         raise HTTPException(status_code=404, detail="Schedule not found")
     return {"cancelled": True}

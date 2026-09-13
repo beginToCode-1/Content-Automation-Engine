@@ -13,9 +13,11 @@ COPY . .
 
 RUN mkdir -p /app/work /app/config
 
-# Defaults to the image's own (ephemeral) filesystem. Override WORK_DIR/DB_PATH
-# to an absolute path under a mounted volume (e.g. /data/work) once you attach
-# persistent storage - see render.yaml / README's deployment section.
+# WORK_DIR defaults to the image's own (ephemeral) filesystem for downloaded
+# videos/rendered clips - override it to an absolute path under a mounted
+# volume (e.g. /data/work) once you attach persistent storage - see
+# render.yaml / README's deployment section. DATABASE_URL (Postgres) is
+# unrelated to this container's disk and persists independently.
 
 EXPOSE 8000
 

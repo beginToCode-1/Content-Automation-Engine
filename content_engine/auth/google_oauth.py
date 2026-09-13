@@ -6,7 +6,7 @@ from google_auth_oauthlib.flow import Flow, InstalledAppFlow
 from googleapiclient.discovery import Resource, build
 
 from content_engine.config import Settings
-from content_engine.db import connected_accounts_repo
+from content_engine.db import connected_accounts_repo, connection
 from content_engine.errors import ConfigError
 
 UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
@@ -138,7 +138,8 @@ def get_youtube_client_for_account(account_id: str, settings: Settings) -> Resou
     """Loads a specific connected account's stored credentials, refreshing (and
     persisting the refresh) if the access token has expired, then returns a
     ready-to-use YouTube API client for it."""
-    row = connected_accounts_repo.get_account(settings.db_path, account_id, settings.token_encryption_key)
+    pool = connection.get_pool()
+    row = connected_accounts_repo.get_account(pool, account_id, settings.token_encryption_key)
     if row is None:
         raise ConfigError(f"Connected YouTube account {account_id} not found.")
 
@@ -156,7 +157,7 @@ def get_youtube_client_for_account(account_id: str, settings: Settings) -> Resou
         if creds.refresh_token:
             creds.refresh(Request())
             connected_accounts_repo.update_tokens(
-                settings.db_path,
+                pool,
                 settings.token_encryption_key,
                 account_id,
                 access_token=creds.token,

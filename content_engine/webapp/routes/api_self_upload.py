@@ -3,11 +3,12 @@ import shutil
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from content_engine.config import Settings
-from content_engine.db import runs_repo, uploads_repo
+from content_engine.db import connection, runs_repo, uploads_repo
 from content_engine.errors import MetadataGenerationError
 from content_engine.metadata.generate_metadata import generate_metadata
 from content_engine.models import ClipMetadata
@@ -15,7 +16,7 @@ from content_engine.pipeline import upload_clip_to_platforms
 from content_engine.render.clip_builder import CLIP_FILENAME
 from content_engine.webapp import executor
 from content_engine.webapp.account_selection import resolve_youtube_account_id
-from content_engine.webapp.deps import get_settings, require_admin
+from content_engine.webapp.deps import get_db_pool, get_settings, require_admin
 from content_engine.webapp.routes.api_runs import VALID_PLATFORMS
 
 router = APIRouter(prefix="/api")
@@ -79,6 +80,7 @@ async def publish_draft(
     draft_id: str,
     payload: PublishDraftRequest,
     settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
     user: dict = Depends(require_admin),
 ):
     draft_dir = settings.work_dir / draft_id
@@ -104,11 +106,11 @@ async def publish_draft(
 
     metadata = ClipMetadata(title=payload.title.strip(), description=payload.description, hashtags=payload.hashtags)
     effective_privacy = payload.privacy or settings.upload_privacy_status
-    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
+    youtube_account_id = resolve_youtube_account_id(pool, user, platforms, payload.youtube_account_id)
 
     await run_in_threadpool(
         runs_repo.insert_run,
-        settings.db_path,
+        pool,
         draft_id,
         topic,
         "web",
@@ -122,7 +124,7 @@ async def publish_draft(
     )
     await run_in_threadpool(
         runs_repo.update_fields,
-        settings.db_path,
+        pool,
         draft_id,
         source_type="own_upload",
         clip_path=str(clip_path),
@@ -148,10 +150,11 @@ def _publish(
     topic,
     youtube_account_id: str | None = None,
 ):
-    runs_repo.mark_running(settings.db_path, run_id)
+    pool = connection.get_pool()
+    runs_repo.mark_running(pool, run_id)
 
     def on_progress(stage: str, message: str) -> None:
-        runs_repo.append_event(settings.db_path, run_id, stage, message)
+        runs_repo.append_event(pool, run_id, stage, message)
 
     try:
         outcomes = upload_clip_to_platforms(
@@ -167,14 +170,14 @@ def _publish(
             raise_if_all_failed=False,
         )
     except Exception as e:
-        runs_repo.mark_failed(settings.db_path, run_id, f"Unexpected error: {e}")
+        runs_repo.mark_failed(pool, run_id, f"Unexpected error: {e}")
         return
 
-    uploads_repo.record_upload_outcomes(settings.db_path, run_id, outcomes)
+    uploads_repo.record_upload_outcomes(pool, run_id, outcomes)
     if any(o.result for o in outcomes):
-        runs_repo.mark_succeeded(settings.db_path, run_id)
+        runs_repo.mark_succeeded(pool, run_id)
     else:
         error_message = "All requested platform uploads failed: " + "; ".join(
             f"{o.platform}: {o.error}" for o in outcomes
         )
-        runs_repo.mark_failed(settings.db_path, run_id, error_message)
+        runs_repo.mark_failed(pool, run_id, error_message)

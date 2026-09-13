@@ -5,6 +5,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.templating import Jinja2Templates
+from psycopg_pool import ConnectionPool
 
 from content_engine.auth.security import decode_access_token
 from content_engine.config import Settings
@@ -23,6 +24,10 @@ templates.env.globals["asset_version"] = str(int(time.time()))
 
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
+
+
+def get_db_pool(request: Request) -> ConnectionPool:
+    return request.app.state.db_pool
 
 
 def get_current_user(
@@ -47,7 +52,7 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
-def channel_connection_status(settings: Settings, user_id: str) -> list[dict]:
+def channel_connection_status(settings: Settings, pool: ConnectionPool, user_id: str) -> list[dict]:
     """Real (not fabricated) connection status per platform. YouTube is now
     per-user (the connected_accounts table) rather than the legacy global
     config/token.json file, which only the CLI still uses. Instagram/TikTok
@@ -56,7 +61,7 @@ def channel_connection_status(settings: Settings, user_id: str) -> list[dict]:
     from content_engine.auth import tiktok_oauth
     from content_engine.db import connected_accounts_repo
 
-    youtube_accounts = connected_accounts_repo.list_accounts_public(settings.db_path, user_id, "youtube")
+    youtube_accounts = connected_accounts_repo.list_accounts_public(pool, user_id, "youtube")
 
     return [
         {

@@ -126,6 +126,31 @@ at a real account once you've verified the flow once on a test one.
 unaudited app to posting privately/as a draft visible only to your own account, so
 there's no way for a test upload to go public by accident.
 
+### Postgres (Supabase)
+
+The app stores users, run history, schedules, and connected accounts in
+Postgres - there is no local database file. Two separate projects are
+recommended: one for local development/tests, one for production, so the
+test suite (which truncates its tables before every test) never touches
+real data.
+
+1. Sign up free at https://supabase.com and create a project (e.g.
+   `content-engine-dev`). Repeat for a second project (e.g.
+   `content-engine-prod`) if you want separate dev/prod databases.
+2. For each project: **Connect** (top of the project dashboard) -> **Direct
+   Connection** -> **Session pooler** tab -> copy the connection URI.
+   Use the **Session pooler**, not Transaction pooler - this app holds its
+   own persistent connection pool rather than opening brief per-request
+   connections, and Transaction-mode pooling disables prepared statements,
+   which the Python Postgres driver enables by default after a few repeated
+   queries.
+3. Replace `[YOUR-PASSWORD]` in the URI with that project's database
+   password (set when you created the project; reset it under **Project
+   Settings -> Database** if you've lost it), and append `?sslmode=require`.
+4. Put the dev project's URI in `.env` as `DATABASE_URL` (see Secrets below).
+   Keep the prod project's URI aside for the Render deployment step - it
+   doesn't need to go into `.env` or git.
+
 ### Python environment
 
 ```powershell
@@ -155,7 +180,12 @@ Then fill in `.env`:
   needed for search). Upload always requires OAuth regardless.
 - `UPLOAD_PRIVACY_STATUS` - defaults to `private`. Change to `public` only once
   you've verified output quality.
-- `DASHBOARD_HOST` / `DASHBOARD_PORT` / `DASHBOARD_MAX_WORKERS` / `DB_PATH` /
+- `DATABASE_URL` - required. A Postgres connection string. For Supabase, use
+  the **Session pooler** URI (Project Settings -> Database -> Connect ->
+  Direct Connection -> Session pooler) - not Transaction pooler, since this
+  app holds its own persistent connection pool and Transaction-mode pooling
+  disables prepared statements. Append `?sslmode=require`.
+- `DASHBOARD_HOST` / `DASHBOARD_PORT` / `DASHBOARD_MAX_WORKERS` /
   `SCHEDULER_POLL_INTERVAL_S` - dashboard settings, sensible defaults provided.
 - `INSTAGRAM_*` / `TIKTOK_*` - optional, only needed if you want those platforms.
   See the Instagram/TikTok setup sections above.
@@ -248,8 +278,8 @@ Opens a local web server (default http://127.0.0.1:8000, binds to localhost only
   daily at a given time. Scheduled runs always upload as `private` - there is no way
   to configure a public scheduled upload, by design.
 
-Run history and schedules persist in a local SQLite file (`content_engine.db` by
-default, gitignored). The dashboard survives being killed mid-run: any run still
+Run history and schedules persist in Postgres (`DATABASE_URL`), not a local file -
+see the Postgres setup below. The dashboard survives being killed mid-run: any run still
 `pending`/`running` at startup is marked `failed` (no silent stuck runs), though a
 truly interrupted pipeline is not resumed - you just re-run that topic.
 
@@ -278,17 +308,20 @@ check at `/api/health`). Fill in the `sync: false` env vars it prompts for
 app reads them from `config/` at runtime and they're gitignored, so they must
 be uploaded directly through the host's dashboard, not committed.
 
-The free plan has no persistent disk: `work/` and the SQLite DB live in the
-container's own ephemeral filesystem and reset on every restart/redeploy, and
-the instance spins down after 15 minutes idle (a ~30-60s cold start on the
-next request). Fine for trying the deploy out. For real ongoing use, upgrade
-the service to a paid plan, attach a Render **Disk** mounted at `/data`, and
-set `WORK_DIR=/data/work` / `DB_PATH=/data/content_engine.db` so runs and
-history actually persist.
+Set `DATABASE_URL` to your **`content-engine-prod`** Supabase project's Session
+pooler connection string (see the Postgres setup above) - never the dev one.
+User accounts, run history, and schedules live there and survive restarts,
+redeploys, and the free plan's idle spin-down (a ~30-60s cold start on the
+next request after 15 minutes idle - normal, not a bug). The free plan still
+has no persistent *disk*, though: `work/` (downloaded videos, rendered clips)
+lives in the container's own ephemeral filesystem and resets on every
+restart/redeploy. Fine for trying the deploy out; for real ongoing use,
+upgrade the service to a paid plan, attach a Render **Disk** mounted at
+`/data`, and set `WORK_DIR=/data/work` so in-progress clip files survive too.
 
 **Railway**: New Project -> Deploy from GitHub repo -> it detects the `Dockerfile`.
-Add a **Volume** mounted at `/data`. Set the same env vars as above, plus
-`WORK_DIR=/data/work` and `DB_PATH=/data/content_engine.db`.
+Set the same env vars as above. Add a **Volume** mounted at `/data` and set
+`WORK_DIR=/data/work` if you also want clip files to survive redeploys.
 
 Either way, once deployed, set `CORS_ALLOW_ORIGINS` on the backend to your Vercel
 frontend's URL (e.g. `https://your-app.vercel.app`) so the browser is allowed to
@@ -307,9 +340,11 @@ URL (e.g. `https://your-backend.onrender.com`). See `web/README.md` for local de
 
 ### Note on persistence
 
-Downloaded videos, rendered clips, and the SQLite database live on disk. On
-Railway/Render this only survives redeploys if you attach a persistent volume/disk
-(as configured above) - without one, `work/` and the DB reset on every deploy.
+User accounts, run history, and schedules live in Postgres (`DATABASE_URL`)
+and survive redeploys regardless of disk configuration. Downloaded videos and
+rendered clips (`work/`) live on the container's local disk - on Railway/Render
+this only survives redeploys if you attach a persistent volume/disk (as
+configured above); without one, `work/` resets on every deploy.
 
 ## Project layout
 
@@ -329,12 +364,16 @@ content_engine/
   metadata/                  Gemini-generated title/description/hashtags
   auth/                     Google OAuth + TikTok OAuth flows, token caching
   uploaders/                 YouTube, Instagram, and TikTok uploaders
-  db/                        SQLite schema + repos (runs, run_events, run_uploads, scheduled_topics)
+  db/                        Postgres schema + connection pool + repos (users, runs, run_events, run_uploads, scheduled_topics, connected_accounts)
   webapp/                    FastAPI app, background executor, scheduler, routes, templates
 tests/                       unit tests (segment selection, ffmpeg, DB repos, pipeline, scheduler, uploaders)
 ```
 
 ## Running tests
+
+Needs `DATABASE_URL` set (see Postgres setup above) - the suite truncates its
+tables before every test that touches the database, so point it at your dev
+project, never production.
 
 ```powershell
 python -m pytest

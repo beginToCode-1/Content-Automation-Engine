@@ -1,9 +1,9 @@
-import sqlite3
 import uuid
-from pathlib import Path
+
+import psycopg
+from psycopg_pool import ConnectionPool
 
 from content_engine.auth.token_crypto import decrypt_token, encrypt_token
-from content_engine.db.connection import get_connection
 
 
 class AccountInUseError(Exception):
@@ -12,7 +12,7 @@ class AccountInUseError(Exception):
 
 
 def upsert_account(
-    db_path: Path,
+    pool: ConnectionPool,
     encryption_key: str,
     user_id: str,
     platform: str,
@@ -27,10 +27,9 @@ def upsert_account(
     just refreshes its stored tokens/label in place rather than creating a
     duplicate row - keyed off the UNIQUE(user_id, platform, external_account_id)
     constraint."""
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         existing = conn.execute(
-            "SELECT id FROM connected_accounts WHERE user_id=? AND platform=? AND external_account_id=?",
+            "SELECT id FROM connected_accounts WHERE user_id=%s AND platform=%s AND external_account_id=%s",
             (user_id, platform, external_account_id),
         ).fetchone()
 
@@ -43,9 +42,9 @@ def upsert_account(
             conn.execute(
                 """
                 UPDATE connected_accounts
-                SET account_label=?, access_token=?, refresh_token=COALESCE(?, refresh_token),
-                    token_expiry=?, scopes=?
-                WHERE id=?
+                SET account_label=%s, access_token=%s, refresh_token=COALESCE(%s, refresh_token),
+                    token_expiry=%s, scopes=%s
+                WHERE id=%s
                 """,
                 (account_label, enc_access, enc_refresh, token_expiry, scopes_str, account_id),
             )
@@ -56,7 +55,7 @@ def upsert_account(
                 INSERT INTO connected_accounts (
                     id, user_id, platform, account_label, external_account_id,
                     access_token, refresh_token, token_expiry, scopes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     account_id,
@@ -72,12 +71,10 @@ def upsert_account(
             )
         conn.commit()
         return account_id
-    finally:
-        conn.close()
 
 
 def update_tokens(
-    db_path: Path,
+    pool: ConnectionPool,
     encryption_key: str,
     account_id: str,
     access_token: str,
@@ -87,22 +84,19 @@ def update_tokens(
     """Called after a credential refresh - Google may or may not issue a new
     refresh_token on refresh, so that field is only overwritten when one is
     actually given back (None means "keep the existing one")."""
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         enc_access = encrypt_token(encryption_key, access_token)
         if refresh_token:
             conn.execute(
-                "UPDATE connected_accounts SET access_token=?, token_expiry=?, refresh_token=? WHERE id=?",
+                "UPDATE connected_accounts SET access_token=%s, token_expiry=%s, refresh_token=%s WHERE id=%s",
                 (enc_access, token_expiry, encrypt_token(encryption_key, refresh_token), account_id),
             )
         else:
             conn.execute(
-                "UPDATE connected_accounts SET access_token=?, token_expiry=? WHERE id=?",
+                "UPDATE connected_accounts SET access_token=%s, token_expiry=%s WHERE id=%s",
                 (enc_access, token_expiry, account_id),
             )
         conn.commit()
-    finally:
-        conn.close()
 
 
 def _decrypt_row(row: dict, encryption_key: str) -> dict:
@@ -113,54 +107,46 @@ def _decrypt_row(row: dict, encryption_key: str) -> dict:
     return row
 
 
-def get_account(db_path: Path, account_id: str, encryption_key: str) -> dict | None:
+def get_account(pool: ConnectionPool, account_id: str, encryption_key: str) -> dict | None:
     """Returns the row WITH decrypted tokens - only call this right before
     building API credentials, never to display to a user."""
-    conn = get_connection(db_path)
-    try:
-        row = conn.execute("SELECT * FROM connected_accounts WHERE id=?", (account_id,)).fetchone()
+    with pool.connection() as conn:
+        row = conn.execute("SELECT * FROM connected_accounts WHERE id=%s", (account_id,)).fetchone()
         return _decrypt_row(row, encryption_key) if row else None
-    finally:
-        conn.close()
 
 
-def list_accounts_public(db_path: Path, user_id: str, platform: str | None = None) -> list[dict]:
+def list_accounts_public(pool: ConnectionPool, user_id: str, platform: str | None = None) -> list[dict]:
     """Returns rows WITHOUT token fields - safe to send straight to the frontend."""
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         if platform:
             rows = conn.execute(
                 "SELECT id, platform, account_label, external_account_id, created_at "
-                "FROM connected_accounts WHERE user_id=? AND platform=? ORDER BY created_at ASC",
+                "FROM connected_accounts WHERE user_id=%s AND platform=%s ORDER BY created_at ASC",
                 (user_id, platform),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, platform, account_label, external_account_id, created_at "
-                "FROM connected_accounts WHERE user_id=? ORDER BY created_at ASC",
+                "FROM connected_accounts WHERE user_id=%s ORDER BY created_at ASC",
                 (user_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+        return rows
 
 
-def delete_account(db_path: Path, account_id: str, user_id: str) -> bool:
-    """Raises AccountInUseError (instead of a raw sqlite3.IntegrityError) if any
+def delete_account(pool: ConnectionPool, account_id: str, user_id: str) -> bool:
+    """Raises AccountInUseError (instead of a raw driver exception) if any
     run/batch/schedule still references this account - those hold a foreign
     key on connected_accounts with no ON DELETE clause, so a straight DELETE
     for a still-referenced row would otherwise 500."""
-    conn = get_connection(db_path)
-    try:
-        cursor = conn.execute(
-            "DELETE FROM connected_accounts WHERE id=? AND user_id=?", (account_id, user_id)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-    except sqlite3.IntegrityError as e:
-        conn.rollback()
-        raise AccountInUseError(
-            "This account is still referenced by an existing run, batch, or schedule."
-        ) from e
-    finally:
-        conn.close()
+    with pool.connection() as conn:
+        try:
+            cursor = conn.execute(
+                "DELETE FROM connected_accounts WHERE id=%s AND user_id=%s", (account_id, user_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except psycopg.errors.ForeignKeyViolation as e:
+            conn.rollback()
+            raise AccountInUseError(
+                "This account is still referenced by an existing run, batch, or schedule."
+            ) from e

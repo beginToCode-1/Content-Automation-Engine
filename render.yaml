@@ -14,13 +14,21 @@ services:
         sync: false
       - key: UPLOAD_PRIVACY_STATUS
         value: private
-      # No persistent disk on the free plan: these are relative paths inside
+      # No persistent disk on the free plan: this is a relative path inside
       # the container's own ephemeral filesystem, wiped on every restart/
-      # redeploy. Switch to /data/... (and add a disk) once you upgrade.
+      # redeploy. Downloaded videos and rendered clips are lost when that
+      # happens - switch to /data/work (and add a Render Disk) once you
+      # upgrade if you need those to survive. User accounts and run history
+      # no longer live here at all - they're in Postgres (DATABASE_URL
+      # below), which persists independently of this container.
       - key: WORK_DIR
         value: work
-      - key: DB_PATH
-        value: content_engine.db
+      # Postgres connection string - Supabase's Session pooler URI (not
+      # Transaction pooler: this app holds its own persistent connection
+      # pool, and Transaction-mode pooling disables prepared statements).
+      # Fill in via Render's dashboard, not committed here.
+      - key: DATABASE_URL
+        sync: false
       - key: DASHBOARD_MAX_WORKERS
         value: "2"
       - key: SCHEDULER_POLL_INTERVAL_S

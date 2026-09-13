@@ -1,13 +1,13 @@
 import re
-import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
 
 from content_engine.auth.security import create_access_token, hash_password, verify_password
 from content_engine.config import Settings
 from content_engine.db import users_repo
-from content_engine.webapp.deps import get_current_user, get_settings
+from content_engine.webapp.deps import get_current_user, get_db_pool, get_settings
 
 router = APIRouter(prefix="/api/auth")
 
@@ -42,7 +42,11 @@ def _issue_token(settings: Settings, user_id: str, email: str, role: str) -> Tok
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(payload: RegisterRequest, settings: Settings = Depends(get_settings)):
+async def register(
+    payload: RegisterRequest,
+    settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
+):
     email = payload.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="Enter a valid email address")
@@ -60,17 +64,21 @@ async def register(payload: RegisterRequest, settings: Settings = Depends(get_se
     password_hash = hash_password(payload.password)
 
     try:
-        user = users_repo.create_user_with_bootstrap_role(settings.db_path, email, password_hash)
-    except sqlite3.IntegrityError:
+        user = users_repo.create_user_with_bootstrap_role(pool, email, password_hash)
+    except users_repo.DuplicateEmailError:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
 
     return _issue_token(settings, user["id"], user["email"], user["role"])
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, settings: Settings = Depends(get_settings)):
+async def login(
+    payload: LoginRequest,
+    settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
+):
     email = payload.email.strip().lower()
-    user = users_repo.get_user_by_email(settings.db_path, email)
+    user = users_repo.get_user_by_email(pool, email)
     if user is None or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 

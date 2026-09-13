@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 
 from content_engine.config import Settings
-from content_engine.db import runs_repo, schedules_repo
+from content_engine.db import connection, runs_repo, schedules_repo
 from content_engine.webapp import executor, upload_queue
 
 logger = logging.getLogger("content_engine.webapp.scheduler")
@@ -36,7 +36,7 @@ async def _scheduler_loop(settings: Settings) -> None:
 
 async def _poll_once(settings: Settings) -> None:
     now = datetime.now()
-    due_entries = await asyncio.to_thread(schedules_repo.find_due, settings.db_path, now)
+    due_entries = await asyncio.to_thread(schedules_repo.find_due, connection.get_pool(), now)
 
     for entry in due_entries:
         platforms = runs_repo.platforms_from_str(entry["target_platforms"])
@@ -52,12 +52,12 @@ async def _poll_once(settings: Settings) -> None:
             user_id=entry["user_id"],
             youtube_account_id=entry["youtube_account_id"],
         )
-        await asyncio.to_thread(schedules_repo.mark_triggered, settings.db_path, entry["id"], run_id, now)
+        await asyncio.to_thread(schedules_repo.mark_triggered, connection.get_pool(), entry["id"], run_id, now)
         if entry["recurrence"] == "once":
-            await asyncio.to_thread(schedules_repo.mark_completed, settings.db_path, entry["id"])
+            await asyncio.to_thread(schedules_repo.mark_completed, connection.get_pool(), entry["id"])
         logger.info("Scheduled topic %r triggered as run %s (forced private)", entry["topic"], run_id)
 
-    due_uploads = await asyncio.to_thread(runs_repo.list_due_queued_uploads, settings.db_path, now)
+    due_uploads = await asyncio.to_thread(runs_repo.list_due_queued_uploads, connection.get_pool(), now)
     for run_row in due_uploads:
         await asyncio.to_thread(upload_queue.process_due_upload, settings, run_row)
         logger.info("Processed queued upload for run %s", run_row["run_id"])

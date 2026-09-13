@@ -1,7 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-from content_engine.db.connection import init_db
 from content_engine.db import batches_repo, runs_repo, uploads_repo
 from content_engine.models import ClipMetadata, GeneratedClip, TranscriptLine, TranscriptSegment, VideoCandidate
 from content_engine.webapp import batch_executor
@@ -25,9 +24,8 @@ def _fake_clip(run_id, video_rank, clip_rank, work_dir):
     )
 
 
-def test_execute_batch_staggers_uploads_exactly(tmp_path):
+def test_execute_batch_staggers_uploads_exactly(pg_pool, tmp_path):
     settings = _fake_settings(tmp_path)
-    init_db(settings.db_path)
 
     fixed_now = datetime(2026, 1, 1, 12, 0, 0)
     clips = [_fake_clip(f"run{i}", 1, i + 1, tmp_path) for i in range(3)]
@@ -46,7 +44,7 @@ def test_execute_batch_staggers_uploads_exactly(tmp_path):
             on_clip_ready(clip, clip.video_rank, clip.clip_rank)
         return clips
 
-    batches_repo.insert_batch(settings.db_path, "batch1", "stoic philosophy", ["youtube"], 1, 3, 60)
+    batches_repo.insert_batch(pg_pool, "batch1", "stoic philosophy", ["youtube"], 1, 3, 60)
 
     with patch("content_engine.webapp.batch_executor.generate_clips_for_topic", side_effect=fake_generate), patch(
         "content_engine.webapp.batch_executor.datetime"
@@ -57,27 +55,30 @@ def test_execute_batch_staggers_uploads_exactly(tmp_path):
         )
 
     for i, clip in enumerate(clips):
-        row = runs_repo.get_run(settings.db_path, clip.run_id)
+        row = runs_repo.get_run(pg_pool, clip.run_id)
         expected = (fixed_now + timedelta(minutes=60 * (i + 1))).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        assert row["scheduled_upload_at"] == expected
+        # scheduled_upload_at is a real TIMESTAMPTZ now (psycopg returns a
+        # tz-aware datetime), not the raw string that was inserted - normalize
+        # to UTC and reformat the same way before comparing.
+        actual = row["scheduled_upload_at"].astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        assert actual == expected
         assert row["batch_id"] == "batch1"
         assert row["status"] == "succeeded"
 
-        uploads = uploads_repo.list_uploads_for_run(settings.db_path, clip.run_id)
+        uploads = uploads_repo.list_uploads_for_run(pg_pool, clip.run_id)
         assert len(uploads) == 1
         assert uploads[0]["status"] == "pending"
 
-    batch = batches_repo.get_batch(settings.db_path, "batch1")
+    batch = batches_repo.get_batch(pg_pool, "batch1")
     assert batch["status"] == "succeeded"
 
 
-def test_execute_batch_marks_failed_on_generation_error(tmp_path):
+def test_execute_batch_marks_failed_on_generation_error(pg_pool, tmp_path):
     settings = _fake_settings(tmp_path)
-    init_db(settings.db_path)
 
     from content_engine.errors import SearchFailedError
 
-    batches_repo.insert_batch(settings.db_path, "batch2", "topic", ["youtube"], 1, 1, 60)
+    batches_repo.insert_batch(pg_pool, "batch2", "topic", ["youtube"], 1, 1, 60)
 
     with patch(
         "content_engine.webapp.batch_executor.generate_clips_for_topic",
@@ -87,6 +88,6 @@ def test_execute_batch_marks_failed_on_generation_error(tmp_path):
             settings, "batch2", "topic", ["youtube"], 1, 1, stagger_gap_minutes=60, privacy_override=None
         )
 
-    batch = batches_repo.get_batch(settings.db_path, "batch2")
+    batch = batches_repo.get_batch(pg_pool, "batch2")
     assert batch["status"] == "failed"
     assert batch["error_message"] == "no results"

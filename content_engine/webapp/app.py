@@ -8,8 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from content_engine.config import Settings
-from content_engine.db.connection import init_db
-from content_engine.db import runs_repo, uploads_repo
+from content_engine.db import connection, runs_repo, uploads_repo
 from content_engine.webapp import executor, scheduler
 from content_engine.webapp.routes import (
     api_auth,
@@ -31,9 +30,11 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        init_db(settings.db_path)
-        swept_runs = await run_in_threadpool(runs_repo.sweep_stale_running, settings.db_path)
-        swept_uploads = await run_in_threadpool(uploads_repo.sweep_stale_uploading, settings.db_path)
+        pool = connection.init_pool(settings.database_url)
+        app.state.db_pool = pool
+        connection.init_db(pool)
+        swept_runs = await run_in_threadpool(runs_repo.sweep_stale_running, pool)
+        swept_uploads = await run_in_threadpool(uploads_repo.sweep_stale_uploading, pool)
         if swept_runs:
             print(f"Marked {swept_runs} interrupted run(s) as failed on startup.")
         if swept_uploads:
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
         finally:
             scheduler.stop_scheduler()
             executor.shutdown_executor()
+            connection.close_pool()
 
     app = FastAPI(title="Content Automation Engine Dashboard", lifespan=lifespan)
     app.state.settings = settings

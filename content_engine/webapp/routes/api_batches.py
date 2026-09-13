@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -6,7 +7,7 @@ from content_engine.config import Settings
 from content_engine.db import batches_repo, runs_repo
 from content_engine.webapp import batch_executor
 from content_engine.webapp.account_selection import resolve_youtube_account_id
-from content_engine.webapp.deps import get_current_user, get_settings, require_admin
+from content_engine.webapp.deps import get_current_user, get_db_pool, get_settings, require_admin
 from content_engine.webapp.routes.api_runs import VALID_PLATFORMS
 
 router = APIRouter(prefix="/api")
@@ -24,9 +25,9 @@ class NewBatchRequest(BaseModel):
 
 @router.get("/batches")
 async def list_batches(
-    limit: int = 20, settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
+    limit: int = 20, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)
 ):
-    batches = await run_in_threadpool(batches_repo.list_recent_batches, settings.db_path, limit, user["id"])
+    batches = await run_in_threadpool(batches_repo.list_recent_batches, pool, limit, user["id"])
     for batch in batches:
         batch["platforms"] = runs_repo.platforms_from_str(batch["target_platforms"])
     return {"batches": batches}
@@ -34,7 +35,10 @@ async def list_batches(
 
 @router.post("/batches", status_code=202)
 async def create_batch(
-    payload: NewBatchRequest, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+    payload: NewBatchRequest,
+    settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
+    user: dict = Depends(require_admin),
 ):
     topic = payload.topic.strip()
     if not topic:
@@ -54,7 +58,7 @@ async def create_batch(
     if payload.stagger_gap_minutes < 1:
         raise HTTPException(status_code=400, detail="stagger_gap_minutes must be at least 1")
 
-    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
+    youtube_account_id = resolve_youtube_account_id(pool, user, platforms, payload.youtube_account_id)
 
     batch_id = await run_in_threadpool(
         batch_executor.submit_batch,
@@ -73,10 +77,10 @@ async def create_batch(
 
 @router.get("/batches/{batch_id}")
 async def get_batch_status(
-    batch_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
+    batch_id: str, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)
 ):
-    batch = await run_in_threadpool(batches_repo.get_batch, settings.db_path, batch_id)
+    batch = await run_in_threadpool(batches_repo.get_batch, pool, batch_id)
     if batch is None or batch["user_id"] != user["id"]:
         raise HTTPException(status_code=404, detail="Batch not found")
-    clips = await run_in_threadpool(runs_repo.list_runs_for_batch, settings.db_path, batch_id)
+    clips = await run_in_threadpool(runs_repo.list_runs_for_batch, pool, batch_id)
     return {"batch": batch, "clips": clips}

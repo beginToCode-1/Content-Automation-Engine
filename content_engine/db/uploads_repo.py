@@ -1,11 +1,10 @@
-from pathlib import Path
+from psycopg_pool import ConnectionPool
 
-from content_engine.db.connection import get_connection
 from content_engine.models import PlatformUploadOutcome
 
 
 def upsert_upload_outcome(
-    db_path: Path,
+    pool: ConnectionPool,
     run_id: str,
     platform: str,
     status: str,
@@ -14,12 +13,11 @@ def upsert_upload_outcome(
     privacy_status: str | None = None,
     error_message: str | None = None,
 ) -> None:
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         conn.execute(
             """
             INSERT INTO run_uploads (run_id, platform, status, video_id, url, privacy_status, error_message, finished_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+            VALUES (%s, %s, %s, %s, %s, %s, %s, now())
             ON CONFLICT(run_id, platform) DO UPDATE SET
                 status=excluded.status,
                 video_id=excluded.video_id,
@@ -31,14 +29,12 @@ def upsert_upload_outcome(
             (run_id, platform, status, video_id, url, privacy_status, error_message),
         )
         conn.commit()
-    finally:
-        conn.close()
 
 
-def record_upload_outcomes(db_path: Path, run_id: str, outcomes: list[PlatformUploadOutcome]) -> None:
+def record_upload_outcomes(pool: ConnectionPool, run_id: str, outcomes: list[PlatformUploadOutcome]) -> None:
     for outcome in outcomes:
         upsert_upload_outcome(
-            db_path,
+            pool,
             run_id,
             outcome.platform,
             status="succeeded" if outcome.result else "failed",
@@ -49,71 +45,56 @@ def record_upload_outcomes(db_path: Path, run_id: str, outcomes: list[PlatformUp
         )
 
 
-def insert_pending_uploads(db_path: Path, run_id: str, platforms: list[str]) -> None:
+def insert_pending_uploads(pool: ConnectionPool, run_id: str, platforms: list[str]) -> None:
     """Pre-creates 'pending' rows for a run whose upload is deferred to a later
     scheduled time - lets list_due_queued_uploads() find it before any upload
     attempt has actually happened."""
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         for platform in platforms:
             conn.execute(
                 """
                 INSERT INTO run_uploads (run_id, platform, status)
-                VALUES (?, ?, 'pending')
+                VALUES (%s, %s, 'pending')
                 ON CONFLICT(run_id, platform) DO NOTHING
                 """,
                 (run_id, platform),
             )
         conn.commit()
-    finally:
-        conn.close()
 
 
-def mark_uploading(db_path: Path, run_id: str) -> None:
-    conn = get_connection(db_path)
-    try:
+def mark_uploading(pool: ConnectionPool, run_id: str) -> None:
+    with pool.connection() as conn:
         conn.execute(
-            "UPDATE run_uploads SET status='uploading' WHERE run_id=? AND status='pending'", (run_id,)
+            "UPDATE run_uploads SET status='uploading' WHERE run_id=%s AND status='pending'", (run_id,)
         )
         conn.commit()
-    finally:
-        conn.close()
 
 
-def skip_pending_uploads(db_path: Path, run_id: str) -> None:
-    conn = get_connection(db_path)
-    try:
+def skip_pending_uploads(pool: ConnectionPool, run_id: str) -> None:
+    with pool.connection() as conn:
         conn.execute(
-            "UPDATE run_uploads SET status='skipped' WHERE run_id=? AND status='pending'", (run_id,)
+            "UPDATE run_uploads SET status='skipped' WHERE run_id=%s AND status='pending'", (run_id,)
         )
         conn.commit()
-    finally:
-        conn.close()
 
 
-def sweep_stale_uploading(db_path: Path) -> int:
-    conn = get_connection(db_path)
-    try:
+def sweep_stale_uploading(pool: ConnectionPool) -> int:
+    with pool.connection() as conn:
         cursor = conn.execute(
             """
             UPDATE run_uploads SET status='failed',
                 error_message='Interrupted by dashboard restart',
-                finished_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                finished_at=now()
             WHERE status='uploading'
             """
         )
         conn.commit()
         return cursor.rowcount
-    finally:
-        conn.close()
 
 
-def list_uploads_for_run(db_path: Path, run_id: str) -> list[dict]:
-    conn = get_connection(db_path)
-    try:
+def list_uploads_for_run(pool: ConnectionPool, run_id: str) -> list[dict]:
+    with pool.connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM run_uploads WHERE run_id=? ORDER BY id ASC", (run_id,)
+            "SELECT * FROM run_uploads WHERE run_id=%s ORDER BY id ASC", (run_id,)
         ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+        return rows

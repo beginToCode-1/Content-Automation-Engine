@@ -4,7 +4,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from content_engine.config import Settings
-from content_engine.db import runs_repo, uploads_repo
+from content_engine.db import connection, runs_repo, uploads_repo
 from content_engine.errors import PipelineError
 from content_engine.pipeline import run_pipeline
 
@@ -45,7 +45,7 @@ def cancel_run(settings: Settings, run_id: str) -> bool:
         return False
     cancelled = future.cancel()
     if cancelled:
-        runs_repo.mark_failed(settings.db_path, run_id, "Cancelled by user before it started")
+        runs_repo.mark_failed(connection.get_pool(), run_id, "Cancelled by user before it started")
     return cancelled
 
 
@@ -66,7 +66,7 @@ def submit_run(
 
     run_id = uuid.uuid4().hex[:10]
     runs_repo.insert_run(
-        settings.db_path,
+        connection.get_pool(),
         run_id,
         topic,
         trigger_source,
@@ -123,10 +123,10 @@ def _run_execute(
     force_private: bool,
     youtube_account_id: str | None = None,
 ) -> None:
-    runs_repo.mark_running(settings.db_path, run_id)
+    runs_repo.mark_running(connection.get_pool(), run_id)
 
     def on_progress(stage: str, message: str) -> None:
-        runs_repo.append_event(settings.db_path, run_id, stage, message)
+        runs_repo.append_event(connection.get_pool(), run_id, stage, message)
 
     try:
         result = run_pipeline(
@@ -141,15 +141,15 @@ def _run_execute(
             youtube_account_id=youtube_account_id,
         )
     except PipelineError as e:
-        runs_repo.mark_failed(settings.db_path, run_id, str(e))
+        runs_repo.mark_failed(connection.get_pool(), run_id, str(e))
         return
     except Exception as e:
         logger.exception("Unexpected error in run %s", run_id)
-        runs_repo.mark_failed(settings.db_path, run_id, f"Unexpected error: {e}")
+        runs_repo.mark_failed(connection.get_pool(), run_id, f"Unexpected error: {e}")
         return
 
     runs_repo.update_fields(
-        settings.db_path,
+        connection.get_pool(),
         run_id,
         source_video_id=result.source_video.video_id,
         source_video_title=result.source_video.title,
@@ -165,5 +165,5 @@ def _run_execute(
         effective_privacy="private" if force_private else (privacy_override or settings.upload_privacy_status),
     )
 
-    uploads_repo.record_upload_outcomes(settings.db_path, run_id, result.uploads)
-    runs_repo.mark_succeeded(settings.db_path, run_id)
+    uploads_repo.record_upload_outcomes(connection.get_pool(), run_id, result.uploads)
+    runs_repo.mark_succeeded(connection.get_pool(), run_id)

@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from content_engine.config import Settings
-from content_engine.db import runs_repo, uploads_repo
+from content_engine.db import connection, runs_repo, uploads_repo
 from content_engine.models import ClipMetadata, PlatformUploadOutcome
 from content_engine.pipeline import upload_clip_to_platforms
 
@@ -16,18 +16,18 @@ def process_due_upload(settings: Settings, run_row: dict) -> None:
     asyncio.to_thread so it doesn't block the event loop.
     """
     run_id = run_row["run_id"]
-    pending_uploads = uploads_repo.list_uploads_for_run(settings.db_path, run_id)
+    pending_uploads = uploads_repo.list_uploads_for_run(connection.get_pool(), run_id)
     platforms = [u["platform"] for u in pending_uploads if u["status"] == "pending"]
     if not platforms:
-        runs_repo.clear_scheduled_upload(settings.db_path, run_id)
+        runs_repo.clear_scheduled_upload(connection.get_pool(), run_id)
         return
 
     # Flip to 'uploading' and clear the schedule BEFORE any network call, so a
     # crash mid-upload leaves a visible 'uploading' row (cleaned up by
     # sweep_stale_uploading on next startup) rather than silently re-matching
     # list_due_queued_uploads() on the next poll tick.
-    uploads_repo.mark_uploading(settings.db_path, run_id)
-    runs_repo.clear_scheduled_upload(settings.db_path, run_id)
+    uploads_repo.mark_uploading(connection.get_pool(), run_id)
+    runs_repo.clear_scheduled_upload(connection.get_pool(), run_id)
 
     metadata = ClipMetadata(
         title=run_row["metadata_title"] or "",
@@ -38,7 +38,7 @@ def process_due_upload(settings: Settings, run_row: dict) -> None:
     effective_privacy = run_row["effective_privacy"] or settings.upload_privacy_status
 
     def on_progress(stage: str, message: str) -> None:
-        runs_repo.append_event(settings.db_path, run_id, stage, message)
+        runs_repo.append_event(connection.get_pool(), run_id, stage, message)
 
     try:
         outcomes = upload_clip_to_platforms(
@@ -56,19 +56,19 @@ def process_due_upload(settings: Settings, run_row: dict) -> None:
     except Exception as e:
         logger.exception("Unexpected error processing queued upload for run %s", run_id)
         uploads_repo.record_upload_outcomes(
-            settings.db_path,
+            connection.get_pool(),
             run_id,
             [PlatformUploadOutcome(platform=p, result=None, error=str(e)) for p in platforms],
         )
-        runs_repo.mark_failed(settings.db_path, run_id, f"Queued upload failed: {e}")
+        runs_repo.mark_failed(connection.get_pool(), run_id, f"Queued upload failed: {e}")
         return
 
-    uploads_repo.record_upload_outcomes(settings.db_path, run_id, outcomes)
+    uploads_repo.record_upload_outcomes(connection.get_pool(), run_id, outcomes)
 
     if any(o.result for o in outcomes):
-        runs_repo.mark_succeeded(settings.db_path, run_id)
+        runs_repo.mark_succeeded(connection.get_pool(), run_id)
     else:
         error_message = "All requested platform uploads failed: " + "; ".join(
             f"{o.platform}: {o.error}" for o in outcomes
         )
-        runs_repo.mark_failed(settings.db_path, run_id, error_message)
+        runs_repo.mark_failed(connection.get_pool(), run_id, error_message)

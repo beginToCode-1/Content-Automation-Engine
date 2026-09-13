@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock, patch
 
 from content_engine.config import Settings
@@ -25,7 +26,7 @@ def _fake_settings(tmp_path):
         dashboard_host="127.0.0.1",
         dashboard_port=8000,
         dashboard_max_workers=2,
-        db_path=tmp_path / "db.sqlite",
+        database_url=os.environ["DATABASE_URL"],
         scheduler_poll_interval_s=30,
         instagram_access_token=None,
         instagram_business_account_id=None,

@@ -1,18 +1,21 @@
-import os
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+def client(pg_pool, tmp_path, monkeypatch):
     monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret")
 
+    from content_engine.db import connection
     from content_engine.webapp.app import create_app
+
+    # create_app()'s lifespan closes the shared connection pool on shutdown -
+    # correct for a real, single-process deployment, but TestClient's __exit__
+    # fires that shutdown after every individual test, which would kill the
+    # pool the whole pytest session (via the pg_pool fixture) depends on.
+    monkeypatch.setattr(connection, "close_pool", lambda: None)
 
     app = create_app()
     with TestClient(app) as c:
@@ -109,10 +112,9 @@ def test_users_only_see_their_own_runs(client, monkeypatch):
 
     # Insert a run directly for "other" without going through the (heavy)
     # pipeline - this test only cares about visibility, not generation.
-    from content_engine.db import runs_repo
+    from content_engine.db import connection, runs_repo
 
-    db_path = Path(os.environ["DB_PATH"])
-    runs_repo.insert_run(db_path, "other-run", "topic", "web", ["youtube"], user_id=other["user"]["id"])
+    runs_repo.insert_run(connection.get_pool(), "other-run", "topic", "web", ["youtube"], user_id=other["user"]["id"])
 
     res = client.get("/api/runs", headers=_auth_headers(admin["access_token"]))
     assert res.status_code == 200
@@ -126,10 +128,9 @@ def test_get_run_not_owned_returns_404_not_403(client):
     admin = _register(client, "admin@example.com")
     other = _register(client, "other@example.com")
 
-    from content_engine.db import runs_repo
+    from content_engine.db import connection, runs_repo
 
-    db_path = Path(os.environ["DB_PATH"])
-    runs_repo.insert_run(db_path, "other-run", "topic", "web", ["youtube"], user_id=other["user"]["id"])
+    runs_repo.insert_run(connection.get_pool(), "other-run", "topic", "web", ["youtube"], user_id=other["user"]["id"])
 
     res = client.get("/api/runs/other-run", headers=_auth_headers(admin["access_token"]))
     assert res.status_code == 404

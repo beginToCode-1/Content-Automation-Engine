@@ -5,8 +5,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+def client(pg_pool, tmp_path, monkeypatch):
     monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("JWT_SECRET_KEY", "test-secret")
@@ -16,7 +15,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", "http://testserver/api/oauth/youtube/callback")
     monkeypatch.setenv("FRONTEND_BASE_URL", "http://frontend.example.com")
 
+    from content_engine.db import connection
     from content_engine.webapp.app import create_app
+
+    # See test_api_auth.py's client fixture for why this is needed - without
+    # it, TestClient's shutdown-on-exit closes the pool the rest of the test
+    # session's pg_pool fixture depends on.
+    monkeypatch.setattr(connection, "close_pool", lambda: None)
 
     app = create_app()
     with TestClient(app, follow_redirects=False) as c:

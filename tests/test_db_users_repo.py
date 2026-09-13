@@ -1,61 +1,63 @@
-import sqlite3
-
 import pytest
 
-from content_engine.db.connection import init_db
 from content_engine.db import users_repo
 
 
-def _fresh_db(tmp_path):
-    db_path = tmp_path / "test.db"
-    init_db(db_path)
-    return db_path
+def test_create_and_get_user_by_email(pg_pool):
+    created = users_repo.create_user(pg_pool, "admin@example.com", "hashed", "admin")
 
-
-def test_create_and_get_user_by_email(tmp_path):
-    db_path = _fresh_db(tmp_path)
-    created = users_repo.create_user(db_path, "admin@example.com", "hashed", "admin")
-
-    row = users_repo.get_user_by_email(db_path, "admin@example.com")
+    row = users_repo.get_user_by_email(pg_pool, "admin@example.com")
     assert row["id"] == created["id"]
     assert row["role"] == "admin"
     assert row["password_hash"] == "hashed"
 
 
-def test_get_user_by_email_is_case_insensitive(tmp_path):
-    db_path = _fresh_db(tmp_path)
-    users_repo.create_user(db_path, "Admin@Example.com", "hashed", "admin")
+def test_get_user_by_email_is_case_insensitive(pg_pool):
+    users_repo.create_user(pg_pool, "Admin@Example.com", "hashed", "admin")
 
-    assert users_repo.get_user_by_email(db_path, "admin@example.com") is not None
-
-
-def test_get_user_by_email_missing_returns_none(tmp_path):
-    db_path = _fresh_db(tmp_path)
-    assert users_repo.get_user_by_email(db_path, "nobody@example.com") is None
+    assert users_repo.get_user_by_email(pg_pool, "admin@example.com") is not None
 
 
-def test_get_user_by_id(tmp_path):
-    db_path = _fresh_db(tmp_path)
-    created = users_repo.create_user(db_path, "viewer@example.com", "hashed", "viewer")
+def test_get_user_by_email_missing_returns_none(pg_pool):
+    assert users_repo.get_user_by_email(pg_pool, "nobody@example.com") is None
 
-    row = users_repo.get_user_by_id(db_path, created["id"])
+
+def test_get_user_by_id(pg_pool):
+    created = users_repo.create_user(pg_pool, "viewer@example.com", "hashed", "viewer")
+
+    row = users_repo.get_user_by_id(pg_pool, created["id"])
     assert row["email"] == "viewer@example.com"
 
 
-def test_duplicate_email_raises_integrity_error(tmp_path):
-    db_path = _fresh_db(tmp_path)
-    users_repo.create_user(db_path, "dup@example.com", "hashed", "viewer")
+def test_duplicate_email_raises_duplicate_email_error(pg_pool):
+    users_repo.create_user(pg_pool, "dup@example.com", "hashed", "viewer")
 
-    with pytest.raises(sqlite3.IntegrityError):
-        users_repo.create_user(db_path, "dup@example.com", "hashed2", "viewer")
+    with pytest.raises(users_repo.DuplicateEmailError):
+        users_repo.create_user(pg_pool, "dup@example.com", "hashed2", "viewer")
 
 
-def test_count_users(tmp_path):
-    db_path = _fresh_db(tmp_path)
-    assert users_repo.count_users(db_path) == 0
+def test_count_users(pg_pool):
+    assert users_repo.count_users(pg_pool) == 0
 
-    users_repo.create_user(db_path, "a@example.com", "hashed", "admin")
-    assert users_repo.count_users(db_path) == 1
+    users_repo.create_user(pg_pool, "a@example.com", "hashed", "admin")
+    assert users_repo.count_users(pg_pool) == 1
 
-    users_repo.create_user(db_path, "b@example.com", "hashed", "viewer")
-    assert users_repo.count_users(db_path) == 2
+    users_repo.create_user(pg_pool, "b@example.com", "hashed", "viewer")
+    assert users_repo.count_users(pg_pool) == 2
+
+
+def test_bootstrap_role_first_user_is_admin(pg_pool):
+    user = users_repo.create_user_with_bootstrap_role(pg_pool, "first@example.com", "hashed")
+    assert user["role"] == "admin"
+
+
+def test_bootstrap_role_second_user_is_viewer(pg_pool):
+    users_repo.create_user_with_bootstrap_role(pg_pool, "first@example.com", "hashed")
+    second = users_repo.create_user_with_bootstrap_role(pg_pool, "second@example.com", "hashed")
+    assert second["role"] == "viewer"
+
+
+def test_bootstrap_role_duplicate_email_raises(pg_pool):
+    users_repo.create_user_with_bootstrap_role(pg_pool, "dup@example.com", "hashed")
+    with pytest.raises(users_repo.DuplicateEmailError):
+        users_repo.create_user_with_bootstrap_role(pg_pool, "dup@example.com", "hashed2")

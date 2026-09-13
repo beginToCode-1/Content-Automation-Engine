@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -9,7 +10,7 @@ from content_engine.config import Settings
 from content_engine.db import runs_repo, uploads_repo
 from content_engine.webapp import executor
 from content_engine.webapp.account_selection import resolve_youtube_account_id
-from content_engine.webapp.deps import get_current_user, get_settings, require_admin
+from content_engine.webapp.deps import get_current_user, get_db_pool, get_settings, require_admin
 
 router = APIRouter(prefix="/api")
 
@@ -34,7 +35,10 @@ class NewRunRequest(BaseModel):
 
 @router.post("/runs", status_code=202)
 async def create_run(
-    payload: NewRunRequest, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+    payload: NewRunRequest,
+    settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
+    user: dict = Depends(require_admin),
 ):
     topic = payload.topic.strip()
     if not topic:
@@ -46,7 +50,7 @@ async def create_run(
         raise HTTPException(status_code=400, detail=f"Unknown platform(s): {sorted(unknown)}")
 
     dry_run = payload.mode == "generate_only"
-    youtube_account_id = resolve_youtube_account_id(settings, user, platforms, payload.youtube_account_id)
+    youtube_account_id = resolve_youtube_account_id(pool, user, platforms, payload.youtube_account_id)
 
     run_id = await run_in_threadpool(
         executor.submit_run,
@@ -64,9 +68,9 @@ async def create_run(
 
 @router.get("/runs")
 async def list_runs(
-    limit: int = 20, settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
+    limit: int = 20, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)
 ):
-    runs = await run_in_threadpool(runs_repo.list_recent, settings.db_path, limit, user["id"])
+    runs = await run_in_threadpool(runs_repo.list_recent, pool, limit, user["id"])
     return {"runs": runs}
 
 
@@ -74,21 +78,24 @@ async def list_runs(
 async def get_run_status(
     run_id: str,
     since_id: int = 0,
-    settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
     user: dict = Depends(get_current_user),
 ):
-    run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
+    run = await run_in_threadpool(runs_repo.get_run, pool, run_id)
     _ensure_owned(run, user)
-    events = await run_in_threadpool(runs_repo.list_events_since, settings.db_path, run_id, since_id)
-    uploads = await run_in_threadpool(uploads_repo.list_uploads_for_run, settings.db_path, run_id)
+    events = await run_in_threadpool(runs_repo.list_events_since, pool, run_id, since_id)
+    uploads = await run_in_threadpool(uploads_repo.list_uploads_for_run, pool, run_id)
     return {"run": run, "events": events, "uploads": uploads}
 
 
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(
-    run_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+    run_id: str,
+    settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
+    user: dict = Depends(require_admin),
 ):
-    run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
+    run = await run_in_threadpool(runs_repo.get_run, pool, run_id)
     _ensure_owned(run, user)
     cancelled = await run_in_threadpool(executor.cancel_run, settings, run_id)
     if not cancelled:
@@ -100,9 +107,12 @@ async def cancel_run(
 
 @router.post("/runs/{run_id}/retry", status_code=202)
 async def retry_run(
-    run_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+    run_id: str,
+    settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
+    user: dict = Depends(require_admin),
 ):
-    run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
+    run = await run_in_threadpool(runs_repo.get_run, pool, run_id)
     _ensure_owned(run, user)
     if run["status"] != "failed":
         raise HTTPException(status_code=409, detail="Only failed runs can be retried")
@@ -117,7 +127,7 @@ async def retry_run(
         # Claim the run atomically first: a compare-and-set on status='failed'
         # so a double-click or a second tab hitting /retry concurrently can't
         # both pass this check and re-publish the same run_id twice.
-        claimed = await run_in_threadpool(runs_repo.try_reclaim_failed, settings.db_path, run_id)
+        claimed = await run_in_threadpool(runs_repo.try_reclaim_failed, pool, run_id)
         if not claimed:
             raise HTTPException(status_code=409, detail="This run is already being retried")
 
@@ -125,7 +135,7 @@ async def retry_run(
         if not clip_path or not clip_path.exists():
             await run_in_threadpool(
                 runs_repo.mark_failed,
-                settings.db_path,
+                pool,
                 run_id,
                 "Original video file is no longer available on disk for retry",
             )
@@ -174,13 +184,13 @@ async def retry_run(
 
 @router.post("/runs/{run_id}/cancel-upload")
 async def cancel_scheduled_upload(
-    run_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(require_admin)
+    run_id: str, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(require_admin)
 ):
-    run = await run_in_threadpool(runs_repo.get_run, settings.db_path, run_id)
+    run = await run_in_threadpool(runs_repo.get_run, pool, run_id)
     _ensure_owned(run, user)
     if not run.get("scheduled_upload_at"):
         raise HTTPException(status_code=409, detail="This run has no pending scheduled upload")
 
-    await run_in_threadpool(uploads_repo.skip_pending_uploads, settings.db_path, run_id)
-    await run_in_threadpool(runs_repo.clear_scheduled_upload, settings.db_path, run_id)
+    await run_in_threadpool(uploads_repo.skip_pending_uploads, pool, run_id)
+    await run_in_threadpool(runs_repo.clear_scheduled_upload, pool, run_id)
     return {"cancelled": True}

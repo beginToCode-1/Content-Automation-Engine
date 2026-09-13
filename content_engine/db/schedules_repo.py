@@ -1,11 +1,10 @@
 from datetime import datetime
-from pathlib import Path
 
-from content_engine.db.connection import get_connection
+from psycopg_pool import ConnectionPool
 
 
 def insert_schedule(
-    db_path: Path,
+    pool: ConnectionPool,
     topic: str,
     recurrence: str,
     target_platforms: list[str],
@@ -14,50 +13,44 @@ def insert_schedule(
     user_id: str | None = None,
     youtube_account_id: str | None = None,
 ) -> int:
-    conn = get_connection(db_path)
-    try:
-        cursor = conn.execute(
+    with pool.connection() as conn:
+        row = conn.execute(
             """
             INSERT INTO scheduled_topics (
                 user_id, youtube_account_id, topic, recurrence, scheduled_time, daily_time, target_platforms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (user_id, youtube_account_id, topic, recurrence, scheduled_time, daily_time, ",".join(target_platforms)),
-        )
+        ).fetchone()
         conn.commit()
-        return cursor.lastrowid
-    finally:
-        conn.close()
+        return row["id"]
 
 
-def list_active(db_path: Path, user_id: str | None = None) -> list[dict]:
-    conn = get_connection(db_path)
-    try:
+def list_active(pool: ConnectionPool, user_id: str | None = None) -> list[dict]:
+    with pool.connection() as conn:
         if user_id is None:
             rows = conn.execute(
                 "SELECT * FROM scheduled_topics WHERE status != 'cancelled' ORDER BY created_at DESC"
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM scheduled_topics WHERE status != 'cancelled' AND user_id=? ORDER BY created_at DESC",
+                "SELECT * FROM scheduled_topics WHERE status != 'cancelled' AND user_id=%s ORDER BY created_at DESC",
                 (user_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
+        return rows
 
 
-def find_due(db_path: Path, now: datetime) -> list[dict]:
+def find_due(pool: ConnectionPool, now: datetime) -> list[dict]:
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     today = now.strftime("%Y-%m-%d")
     hhmm = now.strftime("%H:%M")
 
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         once_rows = conn.execute(
             """
             SELECT * FROM scheduled_topics
-            WHERE status='active' AND recurrence='once' AND scheduled_time <= ?
+            WHERE status='active' AND recurrence='once' AND scheduled_time <= %s
             """,
             (now_iso,),
         ).fetchall()
@@ -65,52 +58,41 @@ def find_due(db_path: Path, now: datetime) -> list[dict]:
         daily_rows = conn.execute(
             """
             SELECT * FROM scheduled_topics
-            WHERE status='active' AND recurrence='daily' AND daily_time <= ?
-              AND (last_triggered_at IS NULL OR substr(last_triggered_at, 1, 10) < ?)
+            WHERE status='active' AND recurrence='daily' AND daily_time <= %s
+              AND (last_triggered_at IS NULL OR last_triggered_at::date < %s::date)
             """,
             (hhmm, today),
         ).fetchall()
 
-        return [dict(row) for row in [*once_rows, *daily_rows]]
-    finally:
-        conn.close()
+        return [*once_rows, *daily_rows]
 
 
-def mark_triggered(db_path: Path, schedule_id: int, run_id: str, now: datetime) -> None:
+def mark_triggered(pool: ConnectionPool, schedule_id: int, run_id: str, now: datetime) -> None:
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         conn.execute(
-            "UPDATE scheduled_topics SET last_triggered_at=?, last_run_id=? WHERE id=?",
+            "UPDATE scheduled_topics SET last_triggered_at=%s, last_run_id=%s WHERE id=%s",
             (now_iso, run_id, schedule_id),
         )
         conn.commit()
-    finally:
-        conn.close()
 
 
-def mark_completed(db_path: Path, schedule_id: int) -> None:
-    conn = get_connection(db_path)
-    try:
-        conn.execute("UPDATE scheduled_topics SET status='completed' WHERE id=?", (schedule_id,))
+def mark_completed(pool: ConnectionPool, schedule_id: int) -> None:
+    with pool.connection() as conn:
+        conn.execute("UPDATE scheduled_topics SET status='completed' WHERE id=%s", (schedule_id,))
         conn.commit()
-    finally:
-        conn.close()
 
 
-def cancel(db_path: Path, schedule_id: int, user_id: str | None = None) -> bool:
+def cancel(pool: ConnectionPool, schedule_id: int, user_id: str | None = None) -> bool:
     """Returns False (no-op) if schedule_id doesn't exist or belongs to a
     different user_id - callers scoping by user should treat False as a 404,
     not a 500, to avoid leaking whether another user's schedule exists."""
-    conn = get_connection(db_path)
-    try:
+    with pool.connection() as conn:
         if user_id is None:
-            cursor = conn.execute("UPDATE scheduled_topics SET status='cancelled' WHERE id=?", (schedule_id,))
+            cursor = conn.execute("UPDATE scheduled_topics SET status='cancelled' WHERE id=%s", (schedule_id,))
         else:
             cursor = conn.execute(
-                "UPDATE scheduled_topics SET status='cancelled' WHERE id=? AND user_id=?", (schedule_id, user_id)
+                "UPDATE scheduled_topics SET status='cancelled' WHERE id=%s AND user_id=%s", (schedule_id, user_id)
             )
         conn.commit()
         return cursor.rowcount > 0
-    finally:
-        conn.close()

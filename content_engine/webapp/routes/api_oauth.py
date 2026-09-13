@@ -3,6 +3,7 @@ import logging
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
+from psycopg_pool import ConnectionPool
 
 from content_engine.auth import google_oauth
 from content_engine.auth.security import (
@@ -14,7 +15,7 @@ from content_engine.auth.security import (
 from content_engine.config import Settings
 from content_engine.db import connected_accounts_repo
 from content_engine.errors import ConfigError
-from content_engine.webapp.deps import get_current_user, get_settings
+from content_engine.webapp.deps import get_current_user, get_db_pool, get_settings
 
 logger = logging.getLogger("content_engine.webapp.routes.api_oauth")
 
@@ -67,6 +68,7 @@ async def youtube_callback(
     state: str | None = None,
     error: str | None = None,
     settings: Settings = Depends(get_settings),
+    pool: ConnectionPool = Depends(get_db_pool),
 ):
     if error:
         return RedirectResponse(_frontend_redirect(settings, f"/accounts?error={error}"), status_code=302)
@@ -86,7 +88,7 @@ async def youtube_callback(
         return RedirectResponse(_frontend_redirect(settings, "/accounts?error=connect_failed"), status_code=302)
 
     connected_accounts_repo.upsert_account(
-        settings.db_path,
+        pool,
         settings.token_encryption_key,
         user_id=user_id,
         platform="youtube",
@@ -102,16 +104,16 @@ async def youtube_callback(
 
 
 @router.get("/accounts")
-async def list_accounts(settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)):
-    return {"accounts": connected_accounts_repo.list_accounts_public(settings.db_path, user["id"])}
+async def list_accounts(pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)):
+    return {"accounts": connected_accounts_repo.list_accounts_public(pool, user["id"])}
 
 
 @router.delete("/accounts/{account_id}")
 async def disconnect_account(
-    account_id: str, settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
+    account_id: str, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)
 ):
     try:
-        deleted = connected_accounts_repo.delete_account(settings.db_path, account_id, user["id"])
+        deleted = connected_accounts_repo.delete_account(pool, account_id, user["id"])
     except connected_accounts_repo.AccountInUseError as e:
         raise HTTPException(status_code=409, detail=str(e))
     if not deleted:

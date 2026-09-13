@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from content_engine.config import Settings
-from content_engine.db import batches_repo, runs_repo, uploads_repo
+from content_engine.db import batches_repo, connection, runs_repo, uploads_repo
 from content_engine.errors import PipelineError
 from content_engine.models import GeneratedClip
 from content_engine.pipeline import generate_clips_for_topic
@@ -26,7 +26,7 @@ def submit_batch(
 ) -> str:
     batch_id = uuid.uuid4().hex[:10]
     batches_repo.insert_batch(
-        settings.db_path,
+        connection.get_pool(),
         batch_id,
         topic,
         target_platforms,
@@ -79,7 +79,7 @@ def _execute_batch(
         ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
         runs_repo.insert_run(
-            settings.db_path,
+            connection.get_pool(),
             clip.run_id,
             topic,
             trigger_source="web",
@@ -90,9 +90,9 @@ def _execute_batch(
             user_id=user_id,
             youtube_account_id=youtube_account_id,
         )
-        runs_repo.mark_running(settings.db_path, clip.run_id)
+        runs_repo.mark_running(connection.get_pool(), clip.run_id)
         runs_repo.update_fields(
-            settings.db_path,
+            connection.get_pool(),
             clip.run_id,
             batch_id=batch_id,
             video_rank=video_rank,
@@ -110,8 +110,8 @@ def _execute_batch(
             effective_privacy=effective_privacy,
             scheduled_upload_at=scheduled_upload_at,
         )
-        uploads_repo.insert_pending_uploads(settings.db_path, clip.run_id, target_platforms)
-        runs_repo.mark_succeeded(settings.db_path, clip.run_id)
+        uploads_repo.insert_pending_uploads(connection.get_pool(), clip.run_id, target_platforms)
+        runs_repo.mark_succeeded(connection.get_pool(), clip.run_id)
 
     try:
         generate_clips_for_topic(
@@ -131,26 +131,26 @@ def _execute_batch(
         # out from under clips that already succeeded and are pending upload.
         if clip_index > 0:
             batches_repo.mark_batch_finished(
-                settings.db_path, batch_id, "succeeded",
+                connection.get_pool(), batch_id, "succeeded",
                 error_message=f"Stopped early after {clip_index} clip(s): {e}",
             )
         else:
-            batches_repo.mark_batch_finished(settings.db_path, batch_id, "failed", error_message=str(e))
+            batches_repo.mark_batch_finished(connection.get_pool(), batch_id, "failed", error_message=str(e))
         return
     except Exception as e:
         logger.exception("Unexpected error generating batch %s", batch_id)
         if clip_index > 0:
             batches_repo.mark_batch_finished(
-                settings.db_path, batch_id, "succeeded",
+                connection.get_pool(), batch_id, "succeeded",
                 error_message=f"Stopped early after {clip_index} clip(s): Unexpected error: {e}",
             )
         else:
             batches_repo.mark_batch_finished(
-                settings.db_path, batch_id, "failed", error_message=f"Unexpected error: {e}"
+                connection.get_pool(), batch_id, "failed", error_message=f"Unexpected error: {e}"
             )
         return
 
     if clip_index == 0:
-        batches_repo.mark_batch_finished(settings.db_path, batch_id, "failed", error_message="No clips were generated")
+        batches_repo.mark_batch_finished(connection.get_pool(), batch_id, "failed", error_message="No clips were generated")
     else:
-        batches_repo.mark_batch_finished(settings.db_path, batch_id, "succeeded")
+        batches_repo.mark_batch_finished(connection.get_pool(), batch_id, "succeeded")

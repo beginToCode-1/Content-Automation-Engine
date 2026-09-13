@@ -23,7 +23,7 @@ class Settings:
     dashboard_host: str
     dashboard_port: int
     dashboard_max_workers: int
-    db_path: Path
+    database_url: str
     scheduler_poll_interval_s: int
 
     instagram_access_token: str | None
@@ -97,7 +97,12 @@ class Settings:
         token_path = PROJECT_ROOT / "config" / "token.json"
         tiktok_token_path = PROJECT_ROOT / "config" / "tiktok_token.json"
 
-        db_path = PROJECT_ROOT / os.getenv("DB_PATH", "content_engine.db")
+        database_url = os.getenv("DATABASE_URL", "").strip()
+        if not database_url:
+            raise ConfigError(
+                "DATABASE_URL is not set. Point it at a Postgres connection string "
+                "(e.g. Supabase's Session pooler URI) - see .env.example."
+            )
 
         jwt_secret_key = os.getenv("JWT_SECRET_KEY", "").strip()
         if not jwt_secret_key:
@@ -128,7 +133,7 @@ class Settings:
             dashboard_host=os.getenv("DASHBOARD_HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1").strip(),
             dashboard_port=int(os.getenv("DASHBOARD_PORT") or os.getenv("PORT", "8000")),
             dashboard_max_workers=int(os.getenv("DASHBOARD_MAX_WORKERS", "2")),
-            db_path=db_path,
+            database_url=database_url,
             scheduler_poll_interval_s=int(os.getenv("SCHEDULER_POLL_INTERVAL_S", "30")),
             cors_allow_origins=[
                 origin.strip()

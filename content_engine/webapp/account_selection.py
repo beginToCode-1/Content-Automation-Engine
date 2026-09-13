@@ -1,11 +1,11 @@
 from fastapi import HTTPException
+from psycopg_pool import ConnectionPool
 
-from content_engine.config import Settings
 from content_engine.db import connected_accounts_repo
 
 
 def resolve_youtube_account_id(
-    settings: Settings, user: dict, platforms: list[str], requested_account_id: str | None
+    pool: ConnectionPool, user: dict, platforms: list[str], requested_account_id: str | None
 ) -> str | None:
     """Figures out which of the current user's connected YouTube accounts a
     new run/batch/schedule should publish to, or raises a 400 with a message
@@ -21,7 +21,7 @@ def resolve_youtube_account_id(
     if "youtube" not in platforms:
         return None
 
-    accounts = connected_accounts_repo.list_accounts_public(settings.db_path, user["id"], "youtube")
+    accounts = connected_accounts_repo.list_accounts_public(pool, user["id"], "youtube")
 
     if requested_account_id:
         if not any(a["id"] == requested_account_id for a in accounts):
