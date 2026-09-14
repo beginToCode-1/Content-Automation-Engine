@@ -82,7 +82,14 @@ def _web_flow(settings: Settings) -> Flow:
             "redirect_uris": [settings.google_oauth_redirect_uri],
         }
     }
-    flow = Flow.from_client_config(client_config, scopes=ALL_SCOPES)
+    # autogenerate_code_verifier=False: the authorize step (build_web_auth_url)
+    # and the token-exchange step (exchange_code_for_credentials) each build
+    # their own separate Flow instance in separate HTTP requests, so a PKCE
+    # code_verifier generated on one never reaches the other - Google then
+    # rejects the exchange with "Missing code verifier". This client already
+    # authenticates with a client_secret (confidential client), so PKCE on
+    # top of that isn't required.
+    flow = Flow.from_client_config(client_config, scopes=ALL_SCOPES, autogenerate_code_verifier=False)
     flow.redirect_uri = settings.google_oauth_redirect_uri
     return flow
 
