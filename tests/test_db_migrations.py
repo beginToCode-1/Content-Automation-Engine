@@ -36,9 +36,11 @@ def test_users_email_unique_index_is_case_insensitive(pg_pool):
     assert any(r["indexname"] == "users_email_lower_unique" for r in rows)
 
 
-def test_no_migrations_directory_or_empty_leaves_schema_migrations_untouched(pg_pool):
+def test_migrations_are_applied_and_recorded_exactly_once(pg_pool):
     with pg_pool.connection() as conn:
-        rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
-    # No migrations/*.sql files exist yet in this repo - schema_migrations
-    # stays empty until the first real forward migration is added.
-    assert rows == []
+        rows = conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
+    # 0001_add_cancelled_run_status.sql is this repo's first real forward
+    # migration - pg_pool's session-scoped setup (init_db, via conftest.py)
+    # already applied it once, so it should be recorded exactly once here,
+    # not reapplied or duplicated by any later init_db() call in this test run.
+    assert [r["version"] for r in rows] == [1]
