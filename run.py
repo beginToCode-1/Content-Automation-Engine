@@ -79,6 +79,7 @@ def check_setup() -> int:
 
 
 def tiktok_auth(redirect_uri: str) -> int:
+    from content_engine import tunnel
     from content_engine.auth import tiktok_oauth
 
     try:
@@ -91,28 +92,43 @@ def tiktok_auth(redirect_uri: str) -> int:
         print("Set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in .env first.", file=sys.stderr)
         return 1
 
-    url = tiktok_oauth.build_authorization_url(settings.tiktok_client_key, redirect_uri)
-    print("1. Open this URL in a browser and authorize the app:\n")
-    print(f"   {url}\n")
-    print(f"2. You'll be redirected to {redirect_uri}?code=...&state=...")
-    print("   (TikTok requires an HTTPS redirect URI registered in your app - a tunnel")
-    print("   like `ngrok http 8000` pointed at the dashboard works well for this.)\n")
-    code = input("3. Paste the 'code' value from that URL here: ").strip()
-    if not code:
-        print("No code provided.", file=sys.stderr)
-        return 1
+    # Saves a separate `ngrok http 8000` terminal if NGROK_AUTHTOKEN is set;
+    # the printed URL still has to be registered as this app's redirect URI
+    # in TikTok's developer dashboard - it changes on every restart unless
+    # you have a paid reserved ngrok domain, so re-confirm it hasn't changed
+    # since last time before pasting `redirect_uri` in above.
+    tunnel_url = tunnel.start_tunnel(settings.dashboard_port)
+    if tunnel_url:
+        print(f"ngrok tunnel started at {tunnel_url} (your dashboard's public HTTPS URL).")
+        print("If this differs from what's registered in your TikTok app's redirect URI, update it there now.\n")
 
     try:
-        token_data = tiktok_oauth.exchange_code_for_token(
-            settings.tiktok_client_key, settings.tiktok_client_secret, code, redirect_uri
-        )
-    except UploadFailedError as e:
-        print(f"Token exchange failed: {e}", file=sys.stderr)
-        return 1
+        url = tiktok_oauth.build_authorization_url(settings.tiktok_client_key, redirect_uri)
+        print("1. Open this URL in a browser and authorize the app:\n")
+        print(f"   {url}\n")
+        print(f"2. You'll be redirected to {redirect_uri}?code=...&state=...")
+        print("   (TikTok requires an HTTPS redirect URI registered in your app - a tunnel")
+        print("   like `ngrok http 8000` pointed at the dashboard works well for this.)\n")
+        code = input("3. Paste the 'code' value from that URL here: ").strip()
+        if not code:
+            print("No code provided.", file=sys.stderr)
+            return 1
 
-    tiktok_oauth.save_token(settings.tiktok_token_path, token_data)
-    print(f"\nSaved TikTok token to {settings.tiktok_token_path}. TikTok is ready to use.")
-    return 0
+        try:
+            token_data = tiktok_oauth.exchange_code_for_token(
+                settings.tiktok_client_key, settings.tiktok_client_secret, code, redirect_uri
+            )
+        except UploadFailedError as e:
+            print(f"Token exchange failed: {e}", file=sys.stderr)
+            return 1
+
+        tiktok_oauth.save_token(settings.tiktok_token_path, token_data)
+        print(f"\nSaved TikTok token to {settings.tiktok_token_path}. TikTok is ready to use.")
+        return 0
+    finally:
+        # This is a short-lived one-shot CLI invocation, not a long-running
+        # server - don't leave a tunnel process dangling after we're done.
+        tunnel.stop_tunnel()
 
 
 def main() -> int:

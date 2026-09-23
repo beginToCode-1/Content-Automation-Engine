@@ -770,6 +770,7 @@ input[type="number"]:focus {
 .badge-succeeded { background: var(--success-soft); color: var(--success); }
 .badge-failed { background: var(--danger-soft); color: var(--danger); }
 .badge-queued { background: var(--panel-2); color: var(--text-dim); }
+.badge-cancelled { background: var(--panel-2); color: var(--text-dim); }
 
 /* ---------- Misc ---------- */
 

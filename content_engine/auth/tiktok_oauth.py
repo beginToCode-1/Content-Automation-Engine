@@ -61,11 +61,12 @@ def _refresh(client_key: str, client_secret: str, refresh_token_value: str) -> d
             timeout=30,
         )
     except requests.RequestException as e:
-        raise UploadFailedError(f"TikTok token refresh request failed: {e}") from e
+        raise UploadFailedError(f"TikTok token refresh request failed: {e}", retryable=True) from e
 
     data = response.json()
     if response.status_code != 200 or "access_token" not in data:
-        raise UploadFailedError(f"TikTok token refresh failed: {data}")
+        retryable = response.status_code >= 500 or response.status_code == 429
+        raise UploadFailedError(f"TikTok token refresh failed: {data}", retryable=retryable)
     return data
 
 

@@ -19,3 +19,4 @@ cryptography>=42
 win11toast>=0.32; sys_platform == "win32"
 pytest>=8
 psycopg[binary,pool]>=3.1
+pyngrok>=7

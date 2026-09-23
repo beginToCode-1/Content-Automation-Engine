@@ -16,6 +16,12 @@ POLL_TIMEOUT_S = 120
 MAX_SINGLE_CHUNK_BYTES = 50 * 1024 * 1024
 
 
+def _status_retryable(status_code: int) -> bool:
+    """5xx and 429 look transient; anything else (4xx auth/validation) won't
+    be fixed by retrying."""
+    return status_code >= 500 or status_code == 429
+
+
 class TikTokUploader(Uploader):
     """Uploads via TikTok's Content Posting API (single-chunk FILE_UPLOAD - fine
     for our ~30-60s vertical clips). Unaudited apps are restricted by TikTok
@@ -53,10 +59,12 @@ class TikTokUploader(Uploader):
             response = requests.post(f"{API_HOST}/v2/post/publish/creator_info/query/", headers=headers, timeout=30)
             data = response.json()
         except requests.RequestException as e:
-            raise UploadFailedError(f"TikTok creator_info query failed: {e}") from e
+            raise UploadFailedError(f"TikTok creator_info query failed: {e}", retryable=True) from e
 
         if response.status_code != 200 or data.get("error", {}).get("code") != "ok":
-            raise UploadFailedError(f"TikTok creator_info query failed: {data}")
+            raise UploadFailedError(
+                f"TikTok creator_info query failed: {data}", retryable=_status_retryable(response.status_code)
+            )
 
         options = data.get("data", {}).get("privacy_level_options", [])
         for candidate in PRIVACY_PRIORITY:
@@ -89,10 +97,12 @@ class TikTokUploader(Uploader):
             response = requests.post(f"{API_HOST}/v2/post/publish/video/init/", headers=headers, json=body, timeout=30)
             data = response.json()
         except requests.RequestException as e:
-            raise UploadFailedError(f"TikTok video init failed: {e}") from e
+            raise UploadFailedError(f"TikTok video init failed: {e}", retryable=True) from e
 
         if response.status_code != 200 or data.get("error", {}).get("code") != "ok":
-            raise UploadFailedError(f"TikTok video init failed: {data}")
+            raise UploadFailedError(
+                f"TikTok video init failed: {data}", retryable=_status_retryable(response.status_code)
+            )
 
         inner = data["data"]
         return inner["publish_id"], inner["upload_url"]
@@ -106,10 +116,13 @@ class TikTokUploader(Uploader):
         try:
             response = requests.put(upload_url, data=video_bytes, headers=put_headers, timeout=120)
         except requests.RequestException as e:
-            raise UploadFailedError(f"TikTok video byte upload failed: {e}") from e
+            raise UploadFailedError(f"TikTok video byte upload failed: {e}", retryable=True) from e
 
         if response.status_code not in (200, 201):
-            raise UploadFailedError(f"TikTok video byte upload failed: HTTP {response.status_code} {response.text}")
+            raise UploadFailedError(
+                f"TikTok video byte upload failed: HTTP {response.status_code} {response.text}",
+                retryable=_status_retryable(response.status_code),
+            )
 
     def _wait_for_publish(self, headers: dict, publish_id: str) -> None:
         deadline = time.monotonic() + POLL_TIMEOUT_S
@@ -123,7 +136,7 @@ class TikTokUploader(Uploader):
                 )
                 data = response.json()
             except requests.RequestException as e:
-                raise UploadFailedError(f"TikTok status fetch failed: {e}") from e
+                raise UploadFailedError(f"TikTok status fetch failed: {e}", retryable=True) from e
 
             status = data.get("data", {}).get("status")
             if status == "PUBLISH_COMPLETE":
@@ -132,4 +145,4 @@ class TikTokUploader(Uploader):
                 raise UploadFailedError(f"TikTok publish failed: {data}")
             time.sleep(POLL_INTERVAL_S)
 
-        raise UploadFailedError("Timed out waiting for TikTok publish to complete")
+        raise UploadFailedError("Timed out waiting for TikTok publish to complete", retryable=True)

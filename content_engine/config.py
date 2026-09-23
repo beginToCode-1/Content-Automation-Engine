@@ -26,6 +26,9 @@ class Settings:
     database_url: str
     scheduler_poll_interval_s: int
 
+    upload_max_retries: int
+    upload_retry_backoff_base_s: float
+
     instagram_access_token: str | None
     instagram_business_account_id: str | None
     instagram_graph_api_version: str
@@ -135,6 +138,8 @@ class Settings:
             dashboard_max_workers=int(os.getenv("DASHBOARD_MAX_WORKERS", "2")),
             database_url=database_url,
             scheduler_poll_interval_s=int(os.getenv("SCHEDULER_POLL_INTERVAL_S", "30")),
+            upload_max_retries=int(os.getenv("UPLOAD_MAX_RETRIES", "3")),
+            upload_retry_backoff_base_s=float(os.getenv("UPLOAD_RETRY_BACKOFF_BASE_S", "2")),
             cors_allow_origins=[
                 origin.strip()
                 for origin in os.getenv("CORS_ALLOW_ORIGINS", "").split(",")

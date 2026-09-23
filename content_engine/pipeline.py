@@ -1,6 +1,8 @@
 import dataclasses
 import json
 import logging
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -8,7 +10,7 @@ from typing import Callable
 from content_engine.auth.google_oauth import ALL_SCOPES, get_youtube_client, get_youtube_client_for_account
 from content_engine.config import Settings
 from content_engine.download.yt_dlp_downloader import download_video
-from content_engine.errors import PipelineError, UploadFailedError
+from content_engine.errors import PipelineError, RunCancelledError, UploadFailedError
 from content_engine.metadata.generate_metadata import generate_metadata
 from content_engine.models import ClipMetadata, GeneratedClip, PipelineResult, PlatformUploadOutcome
 from content_engine.notifications.dispatch import notify_upload_outcome
@@ -49,6 +51,48 @@ def _notify(on_progress: ProgressCallback | None, logger: logging.Logger, stage:
         on_progress(stage, message)
     except Exception:
         logger.exception("on_progress callback raised for stage=%s (ignored)", stage)
+
+
+def _check_cancelled(cancel_event: threading.Event | None, run_id: str, logger: logging.Logger) -> None:
+    """Cooperative cancellation check, called between pipeline stages. A cancel
+    takes effect at the next stage boundary, not instantly - it won't interrupt
+    an in-flight ffmpeg render or an in-flight upload call."""
+    if cancel_event is not None and cancel_event.is_set():
+        logger.info("Run %s cancelled", run_id)
+        raise RunCancelledError("Run cancelled by user")
+
+
+def _upload_with_retry(
+    uploader,
+    clip_path: Path,
+    metadata: ClipMetadata,
+    effective_privacy: str,
+    settings: Settings,
+    platform: str,
+    logger: logging.Logger,
+    on_progress: ProgressCallback | None,
+):
+    """Retries a single platform's upload with exponential backoff, but only
+    for failures the uploader has marked as retryable (network blips,
+    timeouts, 5xx/429) - a non-retryable failure (bad credentials, missing
+    config, rejected content) is raised immediately, same as before."""
+    last_exc: UploadFailedError | None = None
+    for attempt in range(settings.upload_max_retries + 1):
+        try:
+            return uploader.upload(clip_path, metadata, effective_privacy)
+        except UploadFailedError as e:
+            last_exc = e
+            if not e.retryable or attempt == settings.upload_max_retries:
+                raise
+            delay = settings.upload_retry_backoff_base_s * (2**attempt)
+            text = (
+                f"Upload to {platform} failed (attempt {attempt + 1}/{settings.upload_max_retries + 1}), "
+                f"retrying in {delay:.0f}s: {e}"
+            )
+            logger.warning(text)
+            _notify(on_progress, logger, f"upload_{platform}", text)
+            time.sleep(delay)
+    raise last_exc  # unreachable - loop always returns or raises above
 
 
 def _resolve_youtube_oauth_client(settings: Settings, youtube_account_id: str | None):
@@ -116,7 +160,9 @@ def upload_clip_to_platforms(
                     "legacy Desktop OAuth client_secret.json."
                 )
             uploader = _build_uploader(platform, oauth_client, settings)
-            result = uploader.upload(clip_path, metadata, effective_privacy)
+            result = _upload_with_retry(
+                uploader, clip_path, metadata, effective_privacy, settings, platform, logger, on_progress
+            )
             outcome = PlatformUploadOutcome(platform=platform, result=result)
             text = f"Uploaded to {platform}: {result.url} (privacy={result.privacy_status})"
             logger.info(text)
@@ -152,6 +198,7 @@ def run_pipeline(
     run_id: str | None = None,
     on_progress: ProgressCallback | None = None,
     youtube_account_id: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> PipelineResult:
     run_id = run_id or uuid.uuid4().hex[:10]
     platforms = target_platforms or ["youtube"]
@@ -164,7 +211,11 @@ def run_pipeline(
     def notify(stage: str, message: str) -> None:
         _notify(on_progress, logger, stage, message)
 
+    def check_cancelled() -> None:
+        _check_cancelled(cancel_event, run_id, logger)
+
     try:
+        check_cancelled()
         oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
         search_client = build_search_client(settings.youtube_api_key, oauth_client)
 
@@ -178,11 +229,13 @@ def run_pipeline(
         logger.info(text)
         notify("search", text)
 
+        check_cancelled()
         download_result = download_video(best_video.video_id, run_dir)
         text = f"Downloaded video ({download_result.duration_s:.1f}s) to {download_result.video_path}"
         logger.info(text)
         notify("download", text)
 
+        check_cancelled()
         transcript = get_transcript(best_video.video_id)
         text = f"Fetched transcript with {len(transcript)} lines"
         logger.info(text)
@@ -193,11 +246,13 @@ def run_pipeline(
         logger.info(text)
         notify("segment", text)
 
+        check_cancelled()
         clip_path = build_clip(download_result.video_path, segment, run_dir, title_overlay=topic)
         text = f"Built clip at {clip_path}"
         logger.info(text)
         notify("render", text)
 
+        check_cancelled()
         metadata = generate_metadata(topic, segment.text, settings.gemini_model, settings.gemini_api_key)
         (run_dir / "metadata.json").write_text(
             json.dumps(dataclasses.asdict(metadata), indent=2), encoding="utf-8"
@@ -213,6 +268,7 @@ def run_pipeline(
             logger.info("Dry run: skipping upload")
             notify("upload", "Dry run: skipping upload")
         else:
+            check_cancelled()
             effective_privacy = "private" if force_private else (privacy_override or settings.upload_privacy_status)
             if force_private:
                 logger.warning("Forced run: privacy forced to private regardless of any override")
@@ -244,6 +300,9 @@ def run_pipeline(
             work_dir=run_dir,
             uploads=upload_outcomes,
         )
+    except RunCancelledError:
+        logger.info("Run %s cancelled by user", run_id)
+        raise
     except PipelineError as e:
         logger.error("Run failed: %s", e)
         raise

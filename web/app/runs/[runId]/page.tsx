@@ -19,6 +19,7 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [cancellingRun, setCancellingRun] = useState(false);
 
   const sinceIdRef = useRef(0);
   const lastStatusRef = useRef<string | null>(null);
@@ -60,7 +61,7 @@ export default function RunDetailPage() {
 
           if (
             data.run.status !== lastStatusRef.current &&
-            (data.run.status === "succeeded" || data.run.status === "failed")
+            (data.run.status === "succeeded" || data.run.status === "failed" || data.run.status === "cancelled")
           ) {
             // The original reloads the whole page here (window.location.reload())
             // so every server-rendered field picks up its final value. We port
@@ -104,6 +105,21 @@ export default function RunDetailPage() {
       // matches the previous behavior: a failed cancel just leaves the run as-is
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleCancelRun() {
+    setCancellingRun(true);
+    try {
+      await apiFetch(`/api/runs/${runId}/cancel`, { method: "POST" });
+      const fresh = await apiFetch<RunDetailResponse>(`/api/runs/${runId}`);
+      setRun(fresh.run);
+      setEvents(fresh.events);
+      setUploads(fresh.uploads);
+    } catch {
+      // a run that finished between the click and the request just stays as-is
+    } finally {
+      setCancellingRun(false);
     }
   }
 
@@ -157,6 +173,17 @@ export default function RunDetailPage() {
         </strong>
         {" · Trigger: " + run.trigger_source}
         {" · Platforms: " + platforms.join(", ")}
+        {isAdmin && (run.status === "pending" || run.status === "running") && (
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ marginLeft: 10 }}
+            disabled={cancellingRun}
+            onClick={handleCancelRun}
+          >
+            Cancel run
+          </button>
+        )}
       </p>
 
       {run.error_message && <p className="error">{run.error_message}</p>}

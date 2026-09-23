@@ -3,6 +3,7 @@ from pathlib import Path
 
 import requests
 
+from content_engine import tunnel
 from content_engine.config import Settings
 from content_engine.errors import UploadFailedError
 from content_engine.models import ClipMetadata, UploadResult
@@ -13,14 +14,22 @@ POLL_INTERVAL_S = 5
 POLL_TIMEOUT_S = 300
 
 
+def _status_retryable(status_code: int) -> bool:
+    """5xx and 429 look transient; anything else (4xx auth/validation) won't
+    be fixed by retrying."""
+    return status_code >= 500 or status_code == 429
+
+
 class InstagramUploader(Uploader):
     """Publishes a Reel via the Instagram Graph API (Instagram Login variant).
 
     Instagram's container-creation call fetches the video from a URL - it cannot
     see a local file - so this requires the dashboard's own media server
-    (`python dashboard.py`) to be reachable at INSTAGRAM_PUBLIC_VIDEO_BASE_URL
-    (e.g. an ngrok tunnel pointed at it), running for the duration of the upload.
-    See README for the one-time Meta Developer app / Instagram Business account setup.
+    (`python dashboard.py`) to be reachable at a public URL. That's either an
+    explicit INSTAGRAM_PUBLIC_VIDEO_BASE_URL, or - if that's unset - a fresh
+    ngrok tunnel started automatically at boot (see content_engine.tunnel),
+    opted into via NGROK_AUTHTOKEN. See README for the one-time Meta Developer
+    app / Instagram Business account setup.
     """
 
     def __init__(self, settings: Settings):
@@ -33,17 +42,18 @@ class InstagramUploader(Uploader):
                 "Instagram is not configured: set INSTAGRAM_ACCESS_TOKEN and "
                 "INSTAGRAM_BUSINESS_ACCOUNT_ID in .env"
             )
-        if not settings.instagram_public_video_base_url:
+        base_url = settings.instagram_public_video_base_url or tunnel.get_public_url()
+        if not base_url:
             raise UploadFailedError(
-                "INSTAGRAM_PUBLIC_VIDEO_BASE_URL is not set. Instagram fetches the video from "
-                "a public URL - run a tunnel (e.g. `ngrok http 8000`) to the dashboard server "
-                "and set this to the tunnel's HTTPS base."
+                "No public video base URL available. Instagram fetches the video from a public "
+                "URL - either set INSTAGRAM_PUBLIC_VIDEO_BASE_URL to a tunnel's HTTPS base "
+                "(e.g. `ngrok http 8000`), or set NGROK_AUTHTOKEN to have one start automatically."
             )
 
         # Our pipeline always writes the final clip to <work_dir>/<run_id>/clip_captioned.mp4,
         # and the dashboard's /media route serves that same path by run_id.
         run_id = video_path.parent.name
-        video_url = f"{settings.instagram_public_video_base_url}/media/{run_id}/clip.mp4"
+        video_url = f"{base_url}/media/{run_id}/clip.mp4"
 
         caption = metadata.description
         if metadata.hashtags:
@@ -77,11 +87,13 @@ class InstagramUploader(Uploader):
                 timeout=30,
             )
         except requests.RequestException as e:
-            raise UploadFailedError(f"Instagram container creation request failed: {e}") from e
+            raise UploadFailedError(f"Instagram container creation request failed: {e}", retryable=True) from e
 
         data = response.json()
         if response.status_code != 200 or "id" not in data:
-            raise UploadFailedError(f"Instagram container creation failed: {data}")
+            raise UploadFailedError(
+                f"Instagram container creation failed: {data}", retryable=_status_retryable(response.status_code)
+            )
         return data["id"]
 
     def _wait_for_container_ready(self, container_id: str) -> None:
@@ -98,7 +110,7 @@ class InstagramUploader(Uploader):
                 )
                 data = response.json()
             except requests.RequestException as e:
-                raise UploadFailedError(f"Instagram container status check failed: {e}") from e
+                raise UploadFailedError(f"Instagram container status check failed: {e}", retryable=True) from e
 
             status = data.get("status_code")
             if status == "FINISHED":
@@ -107,7 +119,7 @@ class InstagramUploader(Uploader):
                 raise UploadFailedError(f"Instagram container failed to process: {data}")
             time.sleep(POLL_INTERVAL_S)
 
-        raise UploadFailedError("Timed out waiting for Instagram container to finish processing")
+        raise UploadFailedError("Timed out waiting for Instagram container to finish processing", retryable=True)
 
     def _publish_container(self, container_id: str) -> str:
         settings = self._settings
@@ -119,11 +131,13 @@ class InstagramUploader(Uploader):
                 timeout=30,
             )
         except requests.RequestException as e:
-            raise UploadFailedError(f"Instagram publish request failed: {e}") from e
+            raise UploadFailedError(f"Instagram publish request failed: {e}", retryable=True) from e
 
         data = response.json()
         if response.status_code != 200 or "id" not in data:
-            raise UploadFailedError(f"Instagram publish failed: {data}")
+            raise UploadFailedError(
+                f"Instagram publish failed: {data}", retryable=_status_retryable(response.status_code)
+            )
         return data["id"]
 
     def _get_permalink(self, media_id: str) -> str | None:

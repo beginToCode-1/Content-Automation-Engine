@@ -28,6 +28,8 @@ def _fake_settings(tmp_path):
         dashboard_max_workers=2,
         database_url=os.environ["DATABASE_URL"],
         scheduler_poll_interval_s=30,
+        upload_max_retries=3,
+        upload_retry_backoff_base_s=2.0,
         instagram_access_token=None,
         instagram_business_account_id=None,
         instagram_graph_api_version="v21.0",

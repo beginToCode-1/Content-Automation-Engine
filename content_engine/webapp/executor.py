@@ -1,23 +1,29 @@
 import json
 import logging
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from content_engine.config import Settings
 from content_engine.db import connection, runs_repo, uploads_repo
-from content_engine.errors import PipelineError
+from content_engine.errors import PipelineError, RunCancelledError
 from content_engine.pipeline import run_pipeline
 
 logger = logging.getLogger("content_engine.webapp.executor")
 
 _executor: ThreadPoolExecutor | None = None
 _futures: dict[str, object] = {}
+# One cooperative cancellation Event per in-flight run, checked between
+# pipeline stages (see pipeline._check_cancelled). Populated in submit_run(),
+# cleared in _execute()'s finally alongside _futures.
+_cancel_events: dict[str, threading.Event] = {}
 
 
 def init_executor(max_workers: int) -> None:
     global _executor
     _executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="pipeline-run")
     _futures.clear()
+    _cancel_events.clear()
 
 
 def shutdown_executor() -> None:
@@ -26,6 +32,7 @@ def shutdown_executor() -> None:
         _executor.shutdown(wait=False)
         _executor = None
     _futures.clear()
+    _cancel_events.clear()
 
 
 def run_in_background(func, *args) -> None:
@@ -38,15 +45,24 @@ def run_in_background(func, *args) -> None:
 
 
 def cancel_run(settings: Settings, run_id: str) -> bool:
-    """Best-effort cancel: only succeeds if the run hasn't started executing yet
-    (a ThreadPoolExecutor Future can't be cancelled once it's running)."""
+    """Best-effort cancel. If the run hasn't started executing yet, this
+    behaves as before (future.cancel() succeeds outright). If it's already
+    running, sets that run's cooperative cancellation Event instead - the
+    pipeline checks it between stages (see pipeline._check_cancelled), so
+    cancellation takes effect at the next stage boundary, not instantly.
+    Returns False only if the run is unknown to this process (already
+    finished, or - after a restart - never existed here to begin with)."""
     future = _futures.get(run_id)
     if future is None:
         return False
-    cancelled = future.cancel()
-    if cancelled:
+    if future.cancel():
         runs_repo.mark_failed(connection.get_pool(), run_id, "Cancelled by user before it started")
-    return cancelled
+        return True
+    event = _cancel_events.get(run_id)
+    if event is None:
+        return False
+    event.set()
+    return True
 
 
 def submit_run(
@@ -77,6 +93,8 @@ def submit_run(
         user_id=user_id,
         youtube_account_id=youtube_account_id,
     )
+    cancel_event = threading.Event()
+    _cancel_events[run_id] = cancel_event
     future = _executor.submit(
         _execute,
         settings,
@@ -87,6 +105,7 @@ def submit_run(
         target_platforms,
         force_private,
         youtube_account_id,
+        cancel_event,
     )
     _futures[run_id] = future
     return run_id
@@ -101,16 +120,26 @@ def _execute(
     target_platforms: list[str],
     force_private: bool,
     youtube_account_id: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     try:
         _run_execute(
-            settings, run_id, topic, dry_run, privacy_override, target_platforms, force_private, youtube_account_id
+            settings,
+            run_id,
+            topic,
+            dry_run,
+            privacy_override,
+            target_platforms,
+            force_private,
+            youtube_account_id,
+            cancel_event,
         )
     finally:
-        # Completed runs' Futures serve no purpose after this point (cancel_run
-        # can't cancel a finished run anyway) - without this, a long-lived
-        # server process accumulates one dict entry per run forever.
+        # Completed runs' Futures/cancel Events serve no purpose after this
+        # point - without this, a long-lived server process accumulates one
+        # dict entry per run forever in both dicts.
         _futures.pop(run_id, None)
+        _cancel_events.pop(run_id, None)
 
 
 def _run_execute(
@@ -122,6 +151,7 @@ def _run_execute(
     target_platforms: list[str],
     force_private: bool,
     youtube_account_id: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     runs_repo.mark_running(connection.get_pool(), run_id)
 
@@ -139,7 +169,11 @@ def _run_execute(
             run_id=run_id,
             on_progress=on_progress,
             youtube_account_id=youtube_account_id,
+            cancel_event=cancel_event,
         )
+    except RunCancelledError:
+        runs_repo.mark_cancelled(connection.get_pool(), run_id)
+        return
     except PipelineError as e:
         runs_repo.mark_failed(connection.get_pool(), run_id, str(e))
         return

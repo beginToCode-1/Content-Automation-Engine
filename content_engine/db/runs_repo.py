@@ -131,6 +131,19 @@ def mark_failed(pool: ConnectionPool, run_id: str, error_message: str) -> None:
         conn.commit()
 
 
+def mark_cancelled(pool: ConnectionPool, run_id: str) -> None:
+    with pool.connection() as conn:
+        conn.execute(
+            """
+            UPDATE runs SET status='cancelled', error_message='Cancelled by user',
+                finished_at=now()
+            WHERE run_id=%s
+            """,
+            (run_id,),
+        )
+        conn.commit()
+
+
 def append_event(pool: ConnectionPool, run_id: str, stage: str, message: str) -> None:
     with pool.connection() as conn:
         conn.execute(

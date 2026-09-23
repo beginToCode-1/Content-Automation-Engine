@@ -31,6 +31,17 @@ def test_mark_failed_records_error(pg_pool):
     assert row["error_message"] == "boom"
 
 
+def test_mark_cancelled_records_terminal_state(pg_pool):
+    runs_repo.insert_run(pg_pool, "run1", "stoicism", "web", ["youtube"])
+    runs_repo.mark_running(pg_pool, "run1")
+
+    runs_repo.mark_cancelled(pg_pool, "run1")
+    row = runs_repo.get_run(pg_pool, "run1")
+    assert row["status"] == "cancelled"
+    assert row["error_message"] == "Cancelled by user"
+    assert row["finished_at"] is not None
+
+
 def test_append_event_and_list_events_since(pg_pool):
     runs_repo.insert_run(pg_pool, "run1", "stoicism", "cli", ["youtube"])
 

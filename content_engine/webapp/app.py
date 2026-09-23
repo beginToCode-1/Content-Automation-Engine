@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
+from content_engine import tunnel
 from content_engine.config import Settings
 from content_engine.db import connection, runs_repo, uploads_repo
 from content_engine.webapp import executor, scheduler
@@ -18,6 +19,7 @@ from content_engine.webapp.routes import (
     api_runs,
     api_schedule,
     api_self_upload,
+    api_users,
     media,
 )
 
@@ -40,12 +42,21 @@ def create_app() -> FastAPI:
         if swept_uploads:
             print(f"Marked {swept_uploads} interrupted upload(s) as failed on startup.")
         executor.init_executor(settings.dashboard_max_workers)
+
+        tunnel_url = tunnel.start_tunnel(settings.dashboard_port)
+        if tunnel_url:
+            print(f"ngrok tunnel active: {tunnel_url} -> localhost:{settings.dashboard_port}")
+            print("  Instagram uploads will use this automatically if INSTAGRAM_PUBLIC_VIDEO_BASE_URL is unset.")
+            print("  TikTok: if this URL changed since last time, update your app's redirect URI in the")
+            print("  TikTok developer dashboard before running `python run.py --tiktok-auth <redirect_uri>`.")
+
         scheduler.start_scheduler(settings)
         try:
             yield
         finally:
             scheduler.stop_scheduler()
             executor.shutdown_executor()
+            tunnel.stop_tunnel()
             connection.close_pool()
 
     app = FastAPI(title="Content Automation Engine Dashboard", lifespan=lifespan)
@@ -77,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(api_self_upload.router)
     app.include_router(api_meta.router)
     app.include_router(api_oauth.router)
+    app.include_router(api_users.router)
     app.include_router(media.router)
 
     return app

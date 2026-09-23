@@ -100,7 +100,7 @@ async def cancel_run(
     cancelled = await run_in_threadpool(executor.cancel_run, settings, run_id)
     if not cancelled:
         raise HTTPException(
-            status_code=409, detail="Run could not be cancelled (already started, finished, or unknown)"
+            status_code=409, detail="Run could not be cancelled (already finished, or unknown)"
         )
     return {"cancelled": True}
 
@@ -114,8 +114,8 @@ async def retry_run(
 ):
     run = await run_in_threadpool(runs_repo.get_run, pool, run_id)
     _ensure_owned(run, user)
-    if run["status"] != "failed":
-        raise HTTPException(status_code=409, detail="Only failed runs can be retried")
+    if run["status"] not in ("failed", "cancelled"):
+        raise HTTPException(status_code=409, detail="Only failed or cancelled runs can be retried")
 
     platforms = runs_repo.platforms_from_str(run["target_platforms"])
     privacy = run["requested_privacy"]

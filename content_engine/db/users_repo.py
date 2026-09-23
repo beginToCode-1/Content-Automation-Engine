@@ -74,3 +74,24 @@ def get_user_by_id(pool: ConnectionPool, user_id: str) -> dict | None:
     with pool.connection() as conn:
         row = conn.execute("SELECT * FROM users WHERE id = %s", (user_id,)).fetchone()
         return row
+
+
+def list_users(pool: ConnectionPool) -> list[dict]:
+    """All users, oldest first, for the admin-only user-management page. Rows
+    include password_hash (like get_user_by_id) - the route layer is
+    responsible for stripping it before returning to the client."""
+    with pool.connection() as conn:
+        rows = conn.execute("SELECT * FROM users ORDER BY created_at ASC").fetchall()
+        return rows
+
+
+def update_role(pool: ConnectionPool, user_id: str, role: str) -> dict | None:
+    """Returns the updated row, or None if user_id doesn't exist. Callers
+    must validate `role` themselves (the users_role_check CHECK constraint is
+    only the final backstop)."""
+    with pool.connection() as conn:
+        row = conn.execute(
+            "UPDATE users SET role=%s WHERE id=%s RETURNING *", (role, user_id)
+        ).fetchone()
+        conn.commit()
+        return row

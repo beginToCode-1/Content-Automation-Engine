@@ -75,6 +75,7 @@ export default function Sidebar() {
   const isSchedule = pathname === "/schedule";
   const isRuns = pathname === "/runs" || pathname.startsWith("/runs/");
   const isAccounts = pathname === "/accounts";
+  const isUsers = pathname === "/users";
 
   return (
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`} id="sidebar">
@@ -198,6 +199,30 @@ export default function Sidebar() {
             </span>
             <span className="nav-label">Connected Accounts</span>
           </Link>
+          {user?.role === "admin" && (
+            <Link href="/users" className={navClass(isUsers)} title="Users">
+              <span className="nav-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2" />
+                  <path
+                    d="M2 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M17 11a4 4 0 0 0 0-8M22 21v-2a5 5 0 0 0-3.5-4.77"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              <span className="nav-label">Users</span>
+            </Link>
+          )}
         </nav>
       </div>
 

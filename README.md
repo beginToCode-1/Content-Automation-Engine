@@ -86,16 +86,22 @@ ffprobe -version
    exchange it for a **long-lived token** (Meta's token pages walk through this).
 5. Note your Instagram professional account's numeric ID (shown in the same dashboard).
 6. Instagram's API fetches the video **from a URL** - it cannot see a file on your
-   machine. Run a tunnel pointed at the dashboard (which serves the clip at
-   `/media/<run_id>/clip.mp4`), e.g.:
-   ```powershell
-   ngrok http 8000
-   ```
-   Keep this tunnel (and `python dashboard.py`) running for the duration of any
-   Instagram upload, even for CLI-triggered runs.
-7. Fill in `.env`: `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ACCOUNT_ID`,
-   `INSTAGRAM_PUBLIC_VIDEO_BASE_URL` (your tunnel's HTTPS base, e.g.
-   `https://abcd1234.ngrok.io`).
+   machine. Two ways to give it one:
+   - **Automatic (recommended for local dev)**: set `NGROK_AUTHTOKEN` in `.env` (a
+     free ngrok account's token, from https://dashboard.ngrok.com/get-started/your-authtoken)
+     and the dashboard starts a tunnel to itself automatically on boot - no
+     `INSTAGRAM_PUBLIC_VIDEO_BASE_URL` needed. A fresh ngrok URL each restart is fine
+     here, since Instagram just fetches whatever URL is live at upload time.
+   - **Manual**: run a tunnel yourself and set the URL explicitly:
+     ```powershell
+     ngrok http 8000
+     ```
+     Keep this tunnel (and `python dashboard.py`) running for the duration of any
+     Instagram upload, even for CLI-triggered runs.
+7. Fill in `.env`: `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ACCOUNT_ID`, and
+   either `NGROK_AUTHTOKEN` (automatic tunnel) or `INSTAGRAM_PUBLIC_VIDEO_BASE_URL`
+   (manual tunnel's HTTPS base, e.g. `https://abcd1234.ngrok.io`) - an explicit
+   `INSTAGRAM_PUBLIC_VIDEO_BASE_URL` always wins if both are set.
 
 **Test against a throwaway Instagram Business account first** - Instagram has no
 platform-enforced "private by default" backstop like TikTok does (see below), so a
@@ -107,8 +113,7 @@ at a real account once you've verified the flow once on a test one.
 1. Go to https://developers.tiktok.com/ -> register an app with the **Content Posting
    API** product and `video.publish` scope.
 2. Add an HTTPS redirect URI to the app (TikTok requires HTTPS - a plain
-   `http://localhost` loopback like Google's flow won't work). The same `ngrok http
-   8000` tunnel from the Instagram setup works fine for this too, e.g.
+   `http://localhost` loopback like Google's flow won't work), e.g.
    `https://abcd1234.ngrok.io/tiktok-callback` (the path doesn't need to exist - you
    copy the code out of the browser's address bar manually, see below).
 3. Fill in `.env`: `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`.
@@ -116,11 +121,17 @@ at a real account once you've verified the flow once on a test one.
    ```powershell
    python run.py --tiktok-auth https://abcd1234.ngrok.io/tiktok-callback
    ```
-   It prints an authorization URL - open it, approve access, and you'll be redirected
-   to a URL that 404s (that's fine, the tunnel doesn't need to actually handle it) but
-   contains `?code=...` in the address bar. Copy that `code` value and paste it back
-   into the terminal prompt. The resulting token is cached at
-   `config/tiktok_token.json` (gitignored) and refreshed automatically after that.
+   If `NGROK_AUTHTOKEN` is set in `.env`, this starts a tunnel for you automatically
+   and prints its URL - otherwise run `ngrok http 8000` yourself first, same as before.
+   Either way, **the printed/tunnel URL has to match what's registered in step 2** -
+   ngrok's free tier gives a new random URL every time it starts, so if it's
+   different from last time, update the redirect URI in TikTok's developer dashboard
+   before continuing (a paid ngrok reserved domain avoids this, but isn't required).
+   The command then prints an authorization URL - open it, approve access, and
+   you'll be redirected to a URL that 404s (that's fine, the tunnel doesn't need to
+   actually handle it) but contains `?code=...` in the address bar. Copy that `code`
+   value and paste it back into the terminal prompt. The resulting token is cached
+   at `config/tiktok_token.json` (gitignored) and refreshed automatically after that.
 
 **This is inherently low-risk to test for real**: TikTok itself restricts an
 unaudited app to posting privately/as a draft visible only to your own account, so
@@ -189,6 +200,14 @@ Then fill in `.env`:
   `SCHEDULER_POLL_INTERVAL_S` - dashboard settings, sensible defaults provided.
 - `INSTAGRAM_*` / `TIKTOK_*` - optional, only needed if you want those platforms.
   See the Instagram/TikTok setup sections above.
+- `NGROK_AUTHTOKEN` - optional. If set (and this isn't a deployed/`PORT`-injected
+  environment), the dashboard automatically starts an ngrok tunnel to itself on
+  boot, for Instagram uploads and the TikTok auth helper - see the Instagram/TikTok
+  setup sections above. Leave unset to keep running `ngrok` yourself.
+- `UPLOAD_MAX_RETRIES` / `UPLOAD_RETRY_BACKOFF_BASE_S` - defaults `3` / `2`. Transient
+  upload failures (network blips, timeouts, 5xx/429 responses) are retried with
+  exponential backoff before the run is marked failed; non-transient failures (bad
+  credentials, rejected content) are never retried.
 - `JWT_SECRET_KEY` - required, signs login sessions. Generate one with
   `python -c "import secrets; print(secrets.token_hex(32))"` - never reuse the
   same value across environments, and never commit a real one.
@@ -210,8 +229,10 @@ sharing the URL with anyone else.
 
 Data is per-user: each account only sees the runs/batches/schedules it
 created, regardless of role. There's no cross-user visibility (an admin
-doesn't see a viewer's data or vice versa) and no promotion/demotion UI - that
-requires editing the `users` table's `role` column directly.
+doesn't see a viewer's data or vice versa). An admin can promote/demote any
+account from the **Users** page (admin-only). A role change takes effect the
+next time that account logs in - it's embedded in the login JWT, not
+re-checked against the database on every request.
 
 ### Connected YouTube accounts
 
@@ -363,8 +384,10 @@ content_engine/
   render/                    ffmpeg: cut -> vertical reformat -> burned-in captions
   metadata/                  Gemini-generated title/description/hashtags
   auth/                     Google OAuth + TikTok OAuth flows, token caching
-  uploaders/                 YouTube, Instagram, and TikTok uploaders
+  uploaders/                 YouTube, Instagram, and TikTok uploaders (with retry/backoff)
+  tunnel.py                 optional automatic ngrok tunnel (NGROK_AUTHTOKEN), local dev only
   db/                        Postgres schema + connection pool + repos (users, runs, run_events, run_uploads, scheduled_topics, connected_accounts)
+  db/migrations/             numbered, version-tracked schema migrations, applied on every boot
   webapp/                    FastAPI app, background executor, scheduler, routes, templates
 tests/                       unit tests (segment selection, ffmpeg, DB repos, pipeline, scheduler, uploaders)
 ```
@@ -381,14 +404,15 @@ python -m pytest
 
 ## What's deliberately not built yet
 
-- True mid-run cancellation (only a run that hasn't started executing yet can be
-  cancelled from the dashboard; a running pipeline runs to completion)
 - Multi-video compilation (single video, single segment only)
-- Upload retry logic (a failed/rejected upload is a terminal error per run, by design)
 - Speech-to-text fallback for videos with no captions at all
-- Promotion/demotion UI for user roles (direct DB edit only)
 - Per-user Instagram/TikTok accounts (still one shared credential set per deployment)
 - Chunked multi-part TikTok upload (single-chunk only, fine for our ~30-60s clips;
   a clip over 50MB will fail with a clear error rather than silently truncating)
-- Automated tunnel management for Instagram/TikTok (you run `ngrok` yourself)
+- TikTok's redirect-URI re-registration when the ngrok tunnel URL changes (a TikTok
+  platform constraint - it requires a pre-registered URI, and only a paid ngrok
+  reserved domain avoids the tunnel URL changing on restart; see the TikTok setup
+  section above)
 - Full TikTok public posting (gated on TikTok's own app-review process)
+- Batch run cancellation (mid-run cancellation covers single runs only, not batches)
+- An audit trail for role changes (who promoted/demoted whom, and when)

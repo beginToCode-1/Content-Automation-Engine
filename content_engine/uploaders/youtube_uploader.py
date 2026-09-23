@@ -48,7 +48,9 @@ class YouTubeUploader(Uploader):
             while response is None:
                 _, response = request.next_chunk()
         except HttpError as e:
-            raise UploadFailedError(f"YouTube upload failed: {e}") from e
+            status = getattr(e, "status_code", None) or getattr(getattr(e, "resp", None), "status", None)
+            retryable = status is None or status in {429, 500, 502, 503, 504}
+            raise UploadFailedError(f"YouTube upload failed: {e}", retryable=retryable) from e
 
         video_id = response["id"]
         return UploadResult(

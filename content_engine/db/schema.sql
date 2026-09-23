@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS runs (
     topic TEXT NOT NULL,
     trigger_source TEXT NOT NULL CHECK(trigger_source IN ('cli','web','scheduled')),
     schedule_id INTEGER REFERENCES scheduled_topics(id),
-    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','succeeded','failed')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','succeeded','failed','cancelled')),
     current_stage TEXT,
     dry_run BOOLEAN NOT NULL DEFAULT false,
     requested_privacy TEXT,
