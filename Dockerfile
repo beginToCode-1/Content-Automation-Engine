@@ -4,6 +4,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp needs a JS runtime to solve YouTube's "n challenge"; without it
+# downloads fail with "The page needs to be reloaded".
+COPY --from=denoland/deno:bin-2.9.7 /deno /usr/local/bin/deno
+
 WORKDIR /app
 
 COPY requirements.txt .
