@@ -29,6 +29,11 @@ services:
       # Fill in via Render's dashboard, not committed here.
       - key: DATABASE_URL
         sync: false
+      # Path to a Secret File with a spare Google account's YouTube cookies,
+      # e.g. /etc/secrets/youtube_cookies.txt - gets yt-dlp past YouTube's
+      # bot check on datacenter IPs. See README "YouTube bot check on Render".
+      - key: YTDLP_COOKIES_FILE
+        sync: false
       - key: DASHBOARD_MAX_WORKERS
         value: "2"
       - key: SCHEDULER_POLL_INTERVAL_S

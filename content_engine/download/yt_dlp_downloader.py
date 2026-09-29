@@ -1,3 +1,5 @@
+import os
+import shutil
 from pathlib import Path
 
 import yt_dlp
@@ -20,11 +22,19 @@ def download_video(video_id: str, dest_dir: Path) -> DownloadResult:
         "noprogress": True,
     }
 
+    # YouTube bot-checks datacenter IPs (e.g. Render); a spare account's cookies get past it.
+    # Copied first: yt-dlp writes cookies back, and Render's /etc/secrets is read-only.
+    cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+    if cookies_file:
+        ydl_opts["cookiefile"] = str(shutil.copy(cookies_file, dest_dir / "cookies.txt"))
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as e:
         raise DownloadFailedError(f"Failed to download video {video_id}: {e}") from e
+    finally:
+        (dest_dir / "cookies.txt").unlink(missing_ok=True)
 
     video_path = dest_dir / "source.mp4"
     info_json_path = dest_dir / "source.info.json"

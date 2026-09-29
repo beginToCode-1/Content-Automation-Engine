@@ -344,6 +344,15 @@ upgrade the service to a paid plan, attach a Render **Disk** mounted at
 Set the same env vars as above. Add a **Volume** mounted at `/data` and set
 `WORK_DIR=/data/work` if you also want clip files to survive redeploys.
 
+**YouTube bot check on Render**: YouTube blocks downloads from datacenter IPs
+with "Sign in to confirm you're not a bot". Export `cookies.txt` (Netscape format)
+from a browser logged into a **spare** Google account - never the channel you
+upload to, since YouTube may flag it - using yt-dlp's guide:
+https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies.
+Upload it as a Render **Secret File** named `youtube_cookies.txt` and set
+`YTDLP_COOKIES_FILE=/etc/secrets/youtube_cookies.txt`. Leave it unset locally,
+where your home IP isn't blocked. Cookies expire: re-export when the error returns.
+
 Either way, once deployed, set `CORS_ALLOW_ORIGINS` on the backend to your Vercel
 frontend's URL (e.g. `https://your-app.vercel.app`) so the browser is allowed to
 call it cross-origin.
