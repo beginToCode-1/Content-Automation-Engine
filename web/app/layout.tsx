@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Analytics } from "@vercel/analytics/next";
 import AuthGate from "@/components/AuthGate";
 import Sidebar from "@/components/Sidebar";
 import { AuthProvider } from "@/lib/auth";
@@ -58,6 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </AuthProvider>
+        <Analytics />
       </body>
     </html>
   );
