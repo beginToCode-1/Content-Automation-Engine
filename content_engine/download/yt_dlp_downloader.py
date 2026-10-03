@@ -8,6 +8,15 @@ from content_engine.errors import DownloadFailedError
 from content_engine.models import DownloadResult
 
 
+def add_cookies(ydl_opts: dict, work_dir: Path) -> None:
+    """YouTube bot-checks datacenter IPs (e.g. Render); a spare account's cookies get past it.
+    Copied first: yt-dlp writes cookies back, and Render's /etc/secrets is read-only.
+    The copy lands at work_dir/cookies.txt; callers delete it (or the whole dir) afterwards."""
+    cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+    if cookies_file:
+        ydl_opts["cookiefile"] = str(shutil.copy(cookies_file, work_dir / "cookies.txt"))
+
+
 def download_video(video_id: str, dest_dir: Path) -> DownloadResult:
     dest_dir.mkdir(parents=True, exist_ok=True)
     url = f"https://www.youtube.com/watch?v={video_id}"
@@ -22,11 +31,7 @@ def download_video(video_id: str, dest_dir: Path) -> DownloadResult:
         "noprogress": True,
     }
 
-    # YouTube bot-checks datacenter IPs (e.g. Render); a spare account's cookies get past it.
-    # Copied first: yt-dlp writes cookies back, and Render's /etc/secrets is read-only.
-    cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
-    if cookies_file:
-        ydl_opts["cookiefile"] = str(shutil.copy(cookies_file, dest_dir / "cookies.txt"))
+    add_cookies(ydl_opts, dest_dir)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

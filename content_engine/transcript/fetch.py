@@ -3,7 +3,9 @@ import tempfile
 from pathlib import Path
 
 import yt_dlp
-from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled, YouTubeTranscriptApi
+from youtube_transcript_api import NoTranscriptFound, RequestBlocked, TranscriptsDisabled, YouTubeTranscriptApi
+
+from content_engine.download.yt_dlp_downloader import add_cookies
 
 from content_engine.errors import NoTranscriptAvailableError
 from content_engine.models import TranscriptLine
@@ -61,6 +63,7 @@ def _fetch_via_ytdlp(video_id: str) -> list[TranscriptLine]:
             "quiet": True,
             "noprogress": True,
         }
+        add_cookies(ydl_opts, Path(tmp_dir))
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -77,8 +80,8 @@ def get_transcript(video_id: str) -> list[TranscriptLine]:
     try:
         fetched = YouTubeTranscriptApi().fetch(video_id)
         return [TranscriptLine(text=s.text, start=s.start, duration=s.duration) for s in fetched]
-    except (TranscriptsDisabled, NoTranscriptFound):
-        pass  # expected: fall through to the yt-dlp fallback below
+    except (TranscriptsDisabled, NoTranscriptFound, RequestBlocked):
+        pass  # expected (RequestBlocked = YouTube refusing a datacenter IP like Render's): use yt-dlp + cookies
 
     lines = _fetch_via_ytdlp(video_id)
     if not lines:
