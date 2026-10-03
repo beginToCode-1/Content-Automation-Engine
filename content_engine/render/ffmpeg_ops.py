@@ -8,6 +8,13 @@ from content_engine.errors import RenderFailedError
 
 _TIMEOUT_S = 600
 
+# Render's free plan has 512 MB RAM; ffmpeg's defaults (decoder + x264 threads per host
+# core, 40-frame lookahead at 1080x1920) peaked at ~1.2 GB and got the process OOM-killed.
+# Single-threaded decode/encode + veryfast measured ~270 MB.
+# ponytail: fixed low-memory settings, make them configurable if a bigger box wants speed.
+_FFMPEG = ["ffmpeg", "-y", "-threads", "1"]
+_X264 = ["-c:v", "libx264", "-preset", "veryfast", "-threads", "1"]
+
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
     try:
@@ -40,16 +47,14 @@ def cut(src: Path, start_s: float, end_s: float, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     _run(
         [
-            "ffmpeg",
-            "-y",
+            *_FFMPEG,
             "-ss",
             str(start_s),
             "-to",
             str(end_s),
             "-i",
             str(src),
-            "-c:v",
-            "libx264",
+            *_X264,
             "-c:a",
             "aac",
             str(dest),
@@ -70,14 +75,12 @@ def to_vertical(src: Path, dest: Path, mode: Literal["crop", "pad_blur"] = "crop
         )
     _run(
         [
-            "ffmpeg",
-            "-y",
+            *_FFMPEG,
             "-i",
             str(src),
             "-vf",
             vf,
-            "-c:v",
-            "libx264",
+            *_X264,
             "-c:a",
             "copy",
             str(dest),
@@ -112,14 +115,12 @@ def burn_captions(src: Path, srt_path: Path, dest: Path, title_text: str | None 
         )
     _run(
         [
-            "ffmpeg",
-            "-y",
+            *_FFMPEG,
             "-i",
             str(src),
             "-vf",
             ",".join(filters),
-            "-c:v",
-            "libx264",
+            *_X264,
             "-c:a",
             "copy",
             str(dest),
