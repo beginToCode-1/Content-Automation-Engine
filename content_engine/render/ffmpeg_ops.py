@@ -62,14 +62,19 @@ def cut(src: Path, start_s: float, end_s: float, dest: Path) -> None:
     )
 
 
-def to_vertical(src: Path, dest: Path, mode: Literal["crop", "pad_blur"] = "crop") -> None:
+def to_vertical(src: Path, dest: Path, mode: Literal["crop", "pad_blur"] = "pad_blur") -> None:
+    """pad_blur (default) keeps the whole source frame visible, centered on a blurred copy of
+    itself; crop fills the 9:16 frame but cuts off ~70% of a 16:9 source's width."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     if mode == "crop":
         vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
     else:
+        # Background is blurred at 1/5 size then scaled up: same look, ~4x faster than
+        # blurring at full 1080x1920 (matters on Render's fractional CPU).
         vf = (
             "split[bg][fg];"
-            "[bg]scale=1080:1920,boxblur=20:20[bg];"
+            "[bg]scale=216:384:force_original_aspect_ratio=increase,crop=216:384,"
+            "boxblur=6:2,scale=1080:1920[bg];"
             "[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
@@ -106,7 +111,9 @@ def _escape_drawtext(text: str) -> str:
 
 def burn_captions(src: Path, srt_path: Path, dest: Path, title_text: str | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    filters = [f"subtitles='{_escape_filter_path(srt_path)}'"]
+    # MarginV is in libass's 288-line script space: 55 lifts captions to just under the
+    # centered video, clear of the Shorts/Reels/TikTok buttons covering the bottom.
+    filters = [f"subtitles='{_escape_filter_path(srt_path)}':force_style='MarginV=55'"]
     if title_text:
         escaped_title = _escape_drawtext(title_text)
         filters.append(

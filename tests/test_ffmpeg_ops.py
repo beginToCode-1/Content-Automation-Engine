@@ -39,6 +39,15 @@ def test_to_vertical_crop_mode_uses_crop_filter(tmp_path):
     assert "crop=1080:1920" in args[vf_index + 1]
 
 
+def test_to_vertical_defaults_to_full_frame_on_blurred_background(tmp_path):
+    with patch("subprocess.run", return_value=_ok_result()) as mock_run:
+        ffmpeg_ops.to_vertical(tmp_path / "src.mp4", tmp_path / "out.mp4")
+
+    args = mock_run.call_args[0][0]
+    vf = args[args.index("-vf") + 1]
+    assert "force_original_aspect_ratio=decrease" in vf and "overlay" in vf
+
+
 def test_burn_captions_includes_subtitles_and_title_filters(tmp_path):
     src = tmp_path / "src.mp4"
     srt = tmp_path / "seg.srt"
