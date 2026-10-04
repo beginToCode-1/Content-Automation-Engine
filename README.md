@@ -165,10 +165,10 @@ real data.
 ### Python environment
 
 ```powershell
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 If activation is blocked by execution policy:
@@ -324,10 +324,12 @@ repo root.
 **Render**: Dashboard -> New -> Blueprint -> pick this repo -> it reads
 `render.yaml` automatically (a Docker web service on the **free** plan, health
 check at `/api/health`). Fill in the `sync: false` env vars it prompts for
-(`GEMINI_API_KEY` at minimum). Under **Settings -> Environment**, upload
-`config/client_secret.json` and `config/token.json` as **Secret Files** - the
-app reads them from `config/` at runtime and they're gitignored, so they must
-be uploaded directly through the host's dashboard, not committed.
+(`GEMINI_API_KEY` at minimum). The web dashboard does not need
+`config/client_secret.json` or `config/token.json` - those are only for the
+CLI's single shared account. Web users connect their own channels through the
+"Connect YouTube" flow (the `GOOGLE_OAUTH_*` variables above). Don't upload
+those files as Render Secret Files: Render mounts secret files read-only at
+`/etc/secrets/`, not in `config/`, so the app would not find them there.
 
 Set `DATABASE_URL` to your **`content-engine-prod`** Supabase project's Session
 pooler connection string (see the Postgres setup above) - never the dev one.
@@ -368,6 +370,31 @@ Import the repo on https://vercel.com/new, set **Root Directory** to `web`, and 
 the project env var `NEXT_PUBLIC_API_BASE_URL` pointing at your deployed backend
 URL (e.g. `https://your-backend.onrender.com`). See `web/README.md` for local dev.
 
+### Limits of the free Render plan
+
+These follow from the free plan's design (sleeps after 15 idle minutes, no
+persistent disk, 512 MB RAM, a fraction of one CPU), not from bugs:
+
+- **Schedules and staggered batch uploads only run while the server is awake.**
+  The scheduler lives inside the web process. A daily schedule does not fire on
+  a day the server sleeps through, and a "once" schedule fires late, at the next
+  visit. Queued batch uploads also need their clip files, which are wiped on
+  every restart. For dependable schedules, use a paid always-on plan with a
+  disk, or an external cron service that pings `/api/health` every 10 minutes.
+- **Rendering is slow.** A one-minute clip takes several minutes to render.
+- **Instagram and TikTok uploads don't work on Render as configured.** Instagram
+  needs `INSTAGRAM_PUBLIC_VIDEO_BASE_URL` set to the backend's public URL (the
+  automatic ngrok tunnel is local-only). TikTok's token is a local file created
+  by `python run.py --tiktok-auth`, which the container can't keep.
+
+### Times and privacy
+
+- **Schedule times are stored in UTC.** The web app converts what you type from
+  your local time and shows schedules back in your local time.
+- **Instagram has no per-post privacy.** A Reel is as visible as the account,
+  so Instagram uploads are refused unless the run's privacy is `public`.
+  Scheduled runs are always private, so they never post to Instagram.
+
 ### Note on persistence
 
 User accounts, run history, and schedules live in Postgres (`DATABASE_URL`)
@@ -404,8 +431,9 @@ tests/                       unit tests (segment selection, ffmpeg, DB repos, pi
 ## Running tests
 
 Needs `DATABASE_URL` set (see Postgres setup above) - the suite truncates its
-tables before every test that touches the database, so point it at your dev
-project, never production.
+tables before every test that touches the database, so point it at a separate,
+empty test database (e.g. a local `content_engine_test`), never production or
+the database your local dashboard uses.
 
 ```powershell
 python -m pytest

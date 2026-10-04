@@ -1,0 +1,3 @@
+# Local development and tests. Production (Dockerfile) installs requirements.txt only.
+-r requirements.txt
+pytest>=8
