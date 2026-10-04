@@ -12,13 +12,13 @@ from content_engine.auth.google_oauth import ALL_SCOPES, get_youtube_client, get
 from content_engine.config import Settings
 from content_engine.download.yt_dlp_downloader import download_video
 from content_engine.errors import NoTranscriptAvailableError, PipelineError, RunCancelledError, UploadFailedError
-from content_engine.metadata.generate_metadata import add_source_credit, generate_metadata
+from content_engine.metadata.generate_metadata import add_source_credit, choose_segment, generate_metadata
 from content_engine.models import ClipMetadata, GeneratedClip, PipelineResult, PlatformUploadOutcome
 from content_engine.notifications.dispatch import notify_upload_outcome
 from content_engine.render.clip_builder import build_clip
 from content_engine.search.youtube_search import build_search_client, search_videos, select_top
 from content_engine.transcript.fetch import get_transcript
-from content_engine.transcript.select_segment import select_best_segment, select_top_segments
+from content_engine.transcript.select_segment import select_top_segments
 from content_engine.uploaders.instagram_uploader import InstagramUploader
 from content_engine.uploaders.tiktok_uploader import TikTokUploader
 from content_engine.uploaders.youtube_uploader import YouTubeUploader
@@ -27,6 +27,8 @@ ProgressCallback = Callable[[str, str], None]
 
 # Single runs try the next-best videos when the best one has no usable captions.
 MAX_CANDIDATES_TRIED = 3
+# On-topic windows shortlisted by keyword score, then judged by Gemini.
+SEGMENT_SHORTLIST = 5
 
 
 def _setup_logger(run_dir: Path) -> logging.Logger:
@@ -265,7 +267,7 @@ def run_pipeline(
 
         # Captions come first: they are cheap to fetch, decide the clip, and a
         # video without usable captions is skipped before downloading it.
-        best_video, segment = None, None
+        best_video, shortlist = None, []
         last_error: PipelineError | None = None
         for video in select_top(candidates, topic, count=MAX_CANDIDATES_TRIED):
             check_cancelled()
@@ -277,7 +279,7 @@ def run_pipeline(
                 text = f"Fetched transcript with {len(transcript)} lines" + took()
                 logger.info(text)
                 notify("transcript", text)
-                segment = select_best_segment(transcript, topic)
+                shortlist = select_top_segments(transcript, topic, count=SEGMENT_SHORTLIST)
             except NoTranscriptAvailableError as e:
                 last_error = e
                 text = f"Skipping {video.video_id}: {e}"
@@ -288,6 +290,7 @@ def run_pipeline(
             break
         if best_video is None:
             raise last_error
+        segment = choose_segment(shortlist, topic, settings.gemini_model, settings.gemini_api_key)
         text = f"Selected segment {segment.start_s:.1f}-{segment.end_s:.1f}s (score={segment.score:.3f})"
         logger.info(text)
         notify("segment", text)

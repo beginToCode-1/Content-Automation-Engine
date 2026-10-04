@@ -77,7 +77,7 @@ def _patch_stages(tmp_path):
             return_value=DownloadResult(video_path=tmp_path / "source.mp4", info_json_path=tmp_path / "i.json", duration_s=120.0)
         ),
         get_transcript=MagicMock(return_value=[TranscriptLine("stoic text", 0.0, 30.0)]),
-        select_best_segment=MagicMock(return_value=segment),
+        select_top_segments=MagicMock(return_value=[segment]),
         build_clip=MagicMock(return_value=clip_path),
         generate_metadata=MagicMock(return_value=metadata),
     )

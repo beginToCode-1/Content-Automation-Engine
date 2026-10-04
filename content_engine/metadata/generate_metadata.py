@@ -1,11 +1,12 @@
 import json
+import time
 
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
 from content_engine.errors import MetadataGenerationError
-from content_engine.models import ClipMetadata, VideoCandidate
+from content_engine.models import ClipMetadata, TranscriptSegment, VideoCandidate
 
 _RESPONSE_SCHEMA = {
     "type": "object",
@@ -22,6 +23,7 @@ _RESPONSE_SCHEMA = {
 }
 
 _MAX_TITLE_LEN = 100
+_SERVER_ERROR_WAITS_S = [5, 15, 30]
 _MAX_HASHTAGS = 5
 
 
@@ -34,17 +36,25 @@ def generate_metadata(topic: str, segment_text: str, model: str, api_key: str) -
         "Produce a catchy, accurate title, a short description, and 3-5 relevant hashtags."
     )
 
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=_RESPONSE_SCHEMA,
-            ),
-        )
-    except genai_errors.APIError as e:
-        raise MetadataGenerationError(f"Gemini API call failed: {e}") from e
+    # Gemini returns 503 "high demand" in short bursts. This runs after the slow
+    # render, so a few short retries beat failing the whole run.
+    for attempt, wait_s in enumerate(_SERVER_ERROR_WAITS_S + [None]):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=_RESPONSE_SCHEMA,
+                ),
+            )
+            break
+        except genai_errors.ServerError as e:
+            if wait_s is None:
+                raise MetadataGenerationError(f"Gemini API call failed after {attempt + 1} attempts: {e}") from e
+            time.sleep(wait_s)
+        except genai_errors.APIError as e:
+            raise MetadataGenerationError(f"Gemini API call failed: {e}") from e
 
     if not response.text:
         raise MetadataGenerationError("Gemini response did not include any content")
@@ -75,3 +85,45 @@ def add_source_credit(metadata: ClipMetadata, video: VideoCandidate) -> ClipMeta
     credit = f'Original video: "{video.title}" by {video.channel}\nhttps://www.youtube.com/watch?v={video.video_id}'
     description = f"{metadata.description}\n\n{credit}" if metadata.description else credit
     return ClipMetadata(title=metadata.title, description=description, hashtags=metadata.hashtags)
+
+
+_CHOICE_SCHEMA = {
+    "type": "object",
+    "properties": {"choice": {"type": "integer", "description": "Number of the best excerpt."}},
+    "required": ["choice"],
+}
+
+
+def choose_segment(candidates: list[TranscriptSegment], topic: str, model: str, api_key: str) -> TranscriptSegment:
+    """Asks Gemini which shortlisted excerpt works best as a standalone short.
+    Keyword scoring finds on-topic windows; it can't judge whether a window
+    opens with a hook or ends mid-thought. Any failure falls back to the
+    best keyword score, so this can only improve the pick, never break a run."""
+    by_score = max(candidates, key=lambda c: c.score)
+    if by_score.score > 0:
+        candidates = [c for c in candidates if c.score > 0]
+    if len(candidates) <= 1:
+        return by_score
+
+    excerpts = "\n\n".join(f"Excerpt {i}:\n{c.text}" for i, c in enumerate(candidates, start=1))
+    prompt = (
+        f"These are transcript excerpts from a video. Pick the one that would make the best "
+        f"standalone 30-60 second short video about {topic!r}: it should grab attention in the "
+        "first sentence, make sense without the rest of the video, finish its thought, and stay "
+        f"on topic.\n\n{excerpts}\n\nAnswer with the excerpt's number."
+    )
+    try:
+        # Keep the client in a variable: an unreferenced Client is garbage-collected
+        # (closing its HTTP connection) before the request is sent.
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_CHOICE_SCHEMA),
+        )
+        choice = int(json.loads(response.text or "{}")["choice"])
+    except Exception:
+        return by_score
+    if not 1 <= choice <= len(candidates):
+        return by_score
+    return candidates[choice - 1]
