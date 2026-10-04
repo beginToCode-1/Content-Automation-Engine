@@ -38,3 +38,14 @@ def test_list_recent_batches_orders_newest_first(pg_pool):
 
     recent = batches_repo.list_recent_batches(pg_pool)
     assert [b["batch_id"] for b in recent] == ["batch2", "batch1"]
+
+
+def test_sweep_stale_running_fails_only_running_batches(pg_pool):
+    batches_repo.insert_batch(pg_pool, "running1", "t", ["youtube"], 1, 1, 60)
+    batches_repo.insert_batch(pg_pool, "done1", "t", ["youtube"], 1, 1, 60)
+    batches_repo.mark_batch_finished(pg_pool, "done1", "succeeded")
+
+    assert batches_repo.sweep_stale_running(pg_pool) == 1
+
+    assert batches_repo.get_batch(pg_pool, "running1")["status"] == "failed"
+    assert batches_repo.get_batch(pg_pool, "done1")["status"] == "succeeded"

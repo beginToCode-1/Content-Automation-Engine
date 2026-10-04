@@ -15,6 +15,18 @@ from content_engine.webapp.deps import get_current_user, get_db_pool, get_settin
 router = APIRouter(prefix="/api")
 
 VALID_PLATFORMS = {"youtube", "instagram", "tiktok"}
+MAX_TOPIC_LEN = 200
+
+
+def clean_topic(raw: str) -> str:
+    """The topic feeds YouTube search, the on-screen title and the Gemini
+    prompt: collapse whitespace/newlines and bound its length."""
+    topic = " ".join(raw.split())
+    if not topic:
+        raise HTTPException(status_code=400, detail="topic is required")
+    if len(topic) > MAX_TOPIC_LEN:
+        raise HTTPException(status_code=400, detail=f"topic must be at most {MAX_TOPIC_LEN} characters")
+    return topic
 
 
 def _ensure_owned(run: dict | None, user: dict) -> dict:
@@ -40,9 +52,7 @@ async def create_run(
     pool: ConnectionPool = Depends(get_db_pool),
     user: dict = Depends(require_admin),
 ):
-    topic = payload.topic.strip()
-    if not topic:
-        raise HTTPException(status_code=400, detail="topic is required")
+    topic = clean_topic(payload.topic)
 
     platforms = payload.platforms or ["youtube"]
     unknown = set(platforms) - VALID_PLATFORMS
@@ -170,8 +180,12 @@ async def retry_run(
         topic=run["topic"],
         trigger_source="web",
         target_platforms=platforms,
-        dry_run=False,
+        # A retry must do what the original run was asked to do: a failed
+        # "Generate only" run must not upload on retry, and a scheduled run
+        # stays forced private.
+        dry_run=bool(run["dry_run"]),
         privacy_override=privacy,
+        force_private=run["trigger_source"] == "scheduled",
         user_id=user["id"],
         # Retry reuses the account the original run was tied to - if it was
         # disconnected since then, get_youtube_client_for_account raises a

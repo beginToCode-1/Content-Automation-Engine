@@ -59,7 +59,7 @@ def find_due(pool: ConnectionPool, now: datetime) -> list[dict]:
             """
             SELECT * FROM scheduled_topics
             WHERE status='active' AND recurrence='daily' AND daily_time <= %s
-              AND (last_triggered_at IS NULL OR last_triggered_at::date < %s::date)
+              AND (last_triggered_at IS NULL OR (last_triggered_at AT TIME ZONE 'UTC')::date < %s::date)
             """,
             (hhmm, today),
         ).fetchall()

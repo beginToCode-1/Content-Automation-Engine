@@ -1,7 +1,7 @@
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from content_engine.config import Settings
 from content_engine.db import batches_repo, connection, runs_repo, uploads_repo
@@ -75,7 +75,7 @@ def _execute_batch(
         nonlocal clip_index
         clip_index += 1
         scheduled_upload_at = (
-            datetime.now() + timedelta(minutes=stagger_gap_minutes * clip_index)
+            datetime.now(timezone.utc) + timedelta(minutes=stagger_gap_minutes * clip_index)
         ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
         runs_repo.insert_run(

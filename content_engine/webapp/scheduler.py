@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from content_engine.config import Settings
 from content_engine.db import connection, runs_repo, schedules_repo
@@ -35,7 +35,8 @@ async def _scheduler_loop(settings: Settings) -> None:
 
 
 async def _poll_once(settings: Settings) -> None:
-    now = datetime.now()
+    # UTC, matching how schedule times are stored (TIMESTAMPTZ / UTC HH:MM).
+    now = datetime.now(timezone.utc)
     due_entries = await asyncio.to_thread(schedules_repo.find_due, connection.get_pool(), now)
 
     for entry in due_entries:

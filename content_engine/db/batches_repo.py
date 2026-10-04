@@ -66,3 +66,20 @@ def list_recent_batches(pool: ConnectionPool, limit: int = 20, user_id: str | No
                 "SELECT * FROM run_batches WHERE user_id=%s ORDER BY created_at DESC LIMIT %s", (user_id, limit)
             ).fetchall()
         return rows
+
+
+def sweep_stale_running(pool: ConnectionPool) -> int:
+    """Batch generation runs inside the web process, so a restart (deploy, OOM,
+    free-plan sleep) kills it mid-way. Without this, such a batch shows
+    'running' forever."""
+    with pool.connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE run_batches SET status='failed',
+                error_message='Interrupted by dashboard restart',
+                finished_at=now()
+            WHERE status='running'
+            """
+        )
+        conn.commit()
+        return cursor.rowcount

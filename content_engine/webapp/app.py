@@ -9,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from content_engine import tunnel
 from content_engine.config import Settings
-from content_engine.db import connection, runs_repo, uploads_repo
+from content_engine.db import batches_repo, connection, runs_repo, uploads_repo
 from content_engine.webapp import executor, scheduler
 from content_engine.webapp.routes import (
     api_auth,
@@ -37,6 +37,9 @@ def create_app() -> FastAPI:
         connection.init_db(pool)
         swept_runs = await run_in_threadpool(runs_repo.sweep_stale_running, pool)
         swept_uploads = await run_in_threadpool(uploads_repo.sweep_stale_uploading, pool)
+        swept_batches = await run_in_threadpool(batches_repo.sweep_stale_running, pool)
+        if swept_batches:
+            print(f"Marked {swept_batches} interrupted batch(es) as failed on startup.")
         if swept_runs:
             print(f"Marked {swept_runs} interrupted run(s) as failed on startup.")
         if swept_uploads:

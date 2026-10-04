@@ -64,7 +64,11 @@ def try_reclaim_failed(pool: ConnectionPool, run_id: str) -> bool:
     /retry requests (double-click, two tabs) from both proceeding to
     re-publish the same run_id."""
     with pool.connection() as conn:
-        cursor = conn.execute("UPDATE runs SET status='running' WHERE run_id=%s AND status='failed'", (run_id,))
+        # 'cancelled' too: the retry route accepts both, so claiming only 'failed'
+        # made every cancelled upload answer "already being retried".
+        cursor = conn.execute(
+            "UPDATE runs SET status='running' WHERE run_id=%s AND status IN ('failed','cancelled')", (run_id,)
+        )
         conn.commit()
         return cursor.rowcount > 0
 

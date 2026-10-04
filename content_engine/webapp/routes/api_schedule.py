@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg_pool import ConnectionPool
@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from content_engine.db import schedules_repo
 from content_engine.webapp.account_selection import resolve_youtube_account_id
+from content_engine.webapp.routes.api_runs import VALID_PLATFORMS, clean_topic
 from content_engine.webapp.deps import get_current_user, get_db_pool, require_admin
 
 router = APIRouter(prefix="/api")
@@ -25,19 +26,17 @@ class NewScheduleRequest(BaseModel):
     recurrence: str
     platforms: list[str] = ["youtube"]
     scheduled_time: str | None = None  # ISO datetime, required for recurrence="once"
-    daily_time: str | None = None  # "HH:MM", required for recurrence="daily"
+    daily_time: str | None = None  # "HH:MM" in UTC, required for recurrence="daily"
     youtube_account_id: str | None = None
 
 
 @router.post("/schedule", status_code=201)
-async def create_schedule(
+def create_schedule(
     payload: NewScheduleRequest,
     pool: ConnectionPool = Depends(get_db_pool),
     user: dict = Depends(require_admin),
 ):
-    topic = payload.topic.strip()
-    if not topic:
-        raise HTTPException(status_code=400, detail="topic is required")
+    topic = clean_topic(payload.topic)
     if payload.recurrence not in ("once", "daily"):
         raise HTTPException(status_code=400, detail="recurrence must be 'once' or 'daily'")
 
@@ -51,13 +50,11 @@ async def create_schedule(
             dt = datetime.fromisoformat(payload.scheduled_time)
         except ValueError:
             raise HTTPException(status_code=400, detail="scheduled_time must be an ISO datetime")
-        if dt.tzinfo is not None:
-            # find_due() compares this against datetime.now() (naive, server-
-            # local wall clock) - converting to the server's own local zone
-            # before stripping tzinfo keeps that comparison meaningful instead
-            # of silently mislabeling e.g. a "+05:00" instant as if it were
-            # already in the server's own local time.
-            dt = dt.astimezone().replace(tzinfo=None)
+        # Everything is scheduled in UTC. The web app sends an ISO time with an
+        # offset; a time without one is taken to already be UTC.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
         scheduled_time_iso = dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     else:
         if not payload.daily_time or not _HHMM_RE.match(payload.daily_time):
@@ -65,6 +62,9 @@ async def create_schedule(
         daily_time = payload.daily_time
 
     platforms = payload.platforms or ["youtube"]
+    unknown = set(platforms) - VALID_PLATFORMS
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown platform(s): {sorted(unknown)}")
     youtube_account_id = resolve_youtube_account_id(pool, user, platforms, payload.youtube_account_id)
 
     schedule_id = schedules_repo.insert_schedule(
@@ -81,12 +81,12 @@ async def create_schedule(
 
 
 @router.get("/schedule")
-async def list_schedules(pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)):
+def list_schedules(pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)):
     return {"schedules": schedules_repo.list_active(pool, user["id"])}
 
 
 @router.post("/schedule/{schedule_id}/cancel")
-async def cancel_schedule(
+def cancel_schedule(
     schedule_id: int, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(require_admin)
 ):
     cancelled = schedules_repo.cancel(pool, schedule_id, user["id"])

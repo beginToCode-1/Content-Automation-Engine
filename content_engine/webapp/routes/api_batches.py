@@ -8,7 +8,7 @@ from content_engine.db import batches_repo, runs_repo
 from content_engine.webapp import batch_executor
 from content_engine.webapp.account_selection import resolve_youtube_account_id
 from content_engine.webapp.deps import get_current_user, get_db_pool, get_settings, require_admin
-from content_engine.webapp.routes.api_runs import VALID_PLATFORMS
+from content_engine.webapp.routes.api_runs import VALID_PLATFORMS, clean_topic
 
 router = APIRouter(prefix="/api")
 
@@ -40,9 +40,7 @@ async def create_batch(
     pool: ConnectionPool = Depends(get_db_pool),
     user: dict = Depends(require_admin),
 ):
-    topic = payload.topic.strip()
-    if not topic:
-        raise HTTPException(status_code=400, detail="topic is required")
+    topic = clean_topic(payload.topic)
 
     platforms = payload.platforms or ["youtube"]
     unknown = set(platforms) - VALID_PLATFORMS
