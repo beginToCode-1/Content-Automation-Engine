@@ -21,7 +21,9 @@ def _parse_iso8601_duration(value: str) -> float:
     return float(days * 86400 + hours * 3600 + minutes * 60 + seconds)
 
 
-def search_videos(topic: str, max_results: int = 15, client: Resource | None = None) -> list[VideoCandidate]:
+def search_videos(
+    topic: str, max_results: int = 15, client: Resource | None = None, creative_commons_only: bool = False
+) -> list[VideoCandidate]:
     """Search YouTube for videos relevant to `topic`. Requires a pre-built client
     (either API-key or OAuth authorized) since search.list needs credentials of
     one form or another.
@@ -29,19 +31,11 @@ def search_videos(topic: str, max_results: int = 15, client: Resource | None = N
     if client is None:
         raise SearchFailedError("search_videos() requires a YouTube API client")
 
+    params = dict(q=topic, part="snippet", type="video", maxResults=max_results, relevanceLanguage="en", safeSearch="strict")
+    if creative_commons_only:
+        params["videoLicense"] = "creativeCommon"
     try:
-        search_response = (
-            client.search()
-            .list(
-                q=topic,
-                part="snippet",
-                type="video",
-                maxResults=max_results,
-                relevanceLanguage="en",
-                safeSearch="strict",
-            )
-            .execute()
-        )
+        search_response = client.search().list(**params).execute()
     except HttpError as e:
         raise SearchFailedError(f"YouTube search.list failed: {e}") from e
 

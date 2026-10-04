@@ -12,7 +12,7 @@ from content_engine.auth.google_oauth import ALL_SCOPES, get_youtube_client, get
 from content_engine.config import Settings
 from content_engine.download.yt_dlp_downloader import download_video
 from content_engine.errors import NoTranscriptAvailableError, PipelineError, RunCancelledError, UploadFailedError
-from content_engine.metadata.generate_metadata import generate_metadata
+from content_engine.metadata.generate_metadata import add_source_credit, generate_metadata
 from content_engine.models import ClipMetadata, GeneratedClip, PipelineResult, PlatformUploadOutcome
 from content_engine.notifications.dispatch import notify_upload_outcome
 from content_engine.render.clip_builder import build_clip
@@ -246,7 +246,9 @@ def run_pipeline(
         oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
         search_client = build_search_client(settings.youtube_api_key, oauth_client)
 
-        candidates = search_videos(topic, client=search_client)
+        candidates = search_videos(
+            topic, client=search_client, creative_commons_only=settings.youtube_creative_commons_only
+        )
         text = f"Found {len(candidates)} candidate videos"
         logger.info(text)
         notify("search", text)
@@ -295,7 +297,9 @@ def run_pipeline(
         notify("render", text)
 
         check_cancelled()
-        metadata = generate_metadata(topic, segment.text, settings.gemini_model, settings.gemini_api_key)
+        metadata = add_source_credit(
+            generate_metadata(topic, segment.text, settings.gemini_model, settings.gemini_api_key), best_video
+        )
         (run_dir / "metadata.json").write_text(
             json.dumps(dataclasses.asdict(metadata), indent=2), encoding="utf-8"
         )
@@ -378,7 +382,7 @@ def generate_clips_for_topic(
     oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
     search_client = build_search_client(settings.youtube_api_key, oauth_client)
 
-    candidates = search_videos(topic, client=search_client)
+    candidates = search_videos(topic, client=search_client, creative_commons_only=settings.youtube_creative_commons_only)
     text = f"Found {len(candidates)} candidate videos"
     logger.info(text)
     notify("search", text)
@@ -448,7 +452,9 @@ def _clips_from_video(
         clip_path = build_clip(download_result.video_path, segment, clip_work_dir, title_overlay=topic)
         notify("render", f"Built clip {clip_rank}/{len(segments)} for video {video_rank}: {clip_path}")
 
-        metadata = generate_metadata(topic, segment.text, settings.gemini_model, settings.gemini_api_key)
+        metadata = add_source_credit(
+            generate_metadata(topic, segment.text, settings.gemini_model, settings.gemini_api_key), video
+        )
         notify("metadata", f"Generated metadata for video {video_rank} clip {clip_rank}: {metadata.title}")
 
         clip = GeneratedClip(

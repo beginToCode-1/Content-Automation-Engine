@@ -5,7 +5,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 
 from content_engine.errors import MetadataGenerationError
-from content_engine.models import ClipMetadata
+from content_engine.models import ClipMetadata, VideoCandidate
 
 _RESPONSE_SCHEMA = {
     "type": "object",
@@ -67,3 +67,11 @@ def generate_metadata(topic: str, segment_text: str, model: str, api_key: str) -
     title = title[:_MAX_TITLE_LEN]
 
     return ClipMetadata(title=title, description=description, hashtags=hashtags)
+
+
+def add_source_credit(metadata: ClipMetadata, video: VideoCandidate) -> ClipMetadata:
+    """Every clip credits the creator and links the original video. It's the
+    honest thing to do, and it's what reuse policies expect at a minimum."""
+    credit = f'Original video: "{video.title}" by {video.channel}\nhttps://www.youtube.com/watch?v={video.video_id}'
+    description = f"{metadata.description}\n\n{credit}" if metadata.description else credit
+    return ClipMetadata(title=metadata.title, description=description, hashtags=metadata.hashtags)

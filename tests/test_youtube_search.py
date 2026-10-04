@@ -55,3 +55,34 @@ def test_select_best_skips_too_short_and_too_long_videos():
     assert picked.video_id == "ok"
     with pytest.raises(SearchFailedError):
         select_top([cand("short", 30), cand("podcast", 3 * 3600)], "stoicism", count=2)
+
+
+def test_creative_commons_only_adds_license_filter():
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from content_engine.errors import SearchFailedError
+    from content_engine.search.youtube_search import search_videos
+
+    client = MagicMock()
+    client.search.return_value.list.return_value.execute.return_value = {"items": []}
+    for cc in (False, True):
+        with pytest.raises(SearchFailedError):  # no results; we only inspect the request
+            search_videos("stoicism", client=client, creative_commons_only=cc)
+        params = client.search.return_value.list.call_args.kwargs
+        assert ("videoLicense" in params) is cc
+        if cc:
+            assert params["videoLicense"] == "creativeCommon"
+
+
+def test_add_source_credit_names_creator_and_links_video():
+    from content_engine.metadata.generate_metadata import add_source_credit
+    from content_engine.models import ClipMetadata, VideoCandidate
+
+    video = VideoCandidate(video_id="abc123", title="Algebra Basics", description="", channel="Math Antics", published_at="")
+    out = add_source_credit(ClipMetadata(title="T", description="Learn algebra.", hashtags=["math"]), video)
+    assert out.description.startswith("Learn algebra.\n\n")
+    assert '"Algebra Basics" by Math Antics' in out.description
+    assert out.description.endswith("https://www.youtube.com/watch?v=abc123")
+    assert out.title == "T" and out.hashtags == ["math"]

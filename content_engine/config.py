@@ -108,6 +108,10 @@ class Settings:
 
     cors_allow_origins: list[str] = field(default_factory=list)
 
+    # Only search Creative Commons videos, which their creators allow to be
+    # reused. Far fewer results, but far less risk of copyright claims.
+    youtube_creative_commons_only: bool = False
+
     @classmethod
     def load(cls) -> "Settings":
         load_dotenv(PROJECT_ROOT / ".env")
@@ -211,4 +215,5 @@ class Settings:
             google_oauth_client_secret=(os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip() or None),
             google_oauth_redirect_uri=(os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip() or None),
             frontend_base_url=(os.getenv("FRONTEND_BASE_URL", "").strip().rstrip("/") or None),
+            youtube_creative_commons_only=_env_bool("YOUTUBE_CREATIVE_COMMONS_ONLY", False),
         )
