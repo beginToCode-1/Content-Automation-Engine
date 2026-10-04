@@ -37,27 +37,21 @@ def build_clip(
     title_overlay: str | None = None,
     check_cancelled: Callable[[], None] | None = None,
 ) -> Path:
-    """`check_cancelled` (raises to stop) runs between the three ffmpeg passes,
-    so a cancel during a slow render takes effect after the current pass."""
-    check_cancelled = check_cancelled or (lambda: None)
+    """`check_cancelled` (raises to stop) is polled while ffmpeg runs, so a
+    cancel during a slow render stops it within about half a second."""
     work_dir.mkdir(parents=True, exist_ok=True)
-
-    raw_clip = work_dir / "clip_raw.mp4"
-    ffmpeg_ops.cut(source_video, segment.start_s, segment.end_s, raw_clip)
-
-    check_cancelled()
-    vertical_clip = work_dir / "clip_vertical.mp4"
-    ffmpeg_ops.to_vertical(raw_clip, vertical_clip)
-    check_cancelled()
 
     srt_path = work_dir / "segment.srt"
     srt_path.write_text(_build_srt(segment), encoding="utf-8")
 
     final_clip = work_dir / CLIP_FILENAME
-    ffmpeg_ops.burn_captions(vertical_clip, srt_path, final_clip, title_text=title_overlay)
-
-    # Intermediates are full-size videos; only the final clip is ever used again.
-    raw_clip.unlink(missing_ok=True)
-    vertical_clip.unlink(missing_ok=True)
-
+    ffmpeg_ops.render_clip(
+        source_video,
+        segment.start_s,
+        segment.end_s,
+        srt_path,
+        final_clip,
+        title_text=title_overlay,
+        should_stop=check_cancelled,
+    )
     return final_clip

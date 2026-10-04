@@ -11,12 +11,12 @@ from typing import Callable
 from content_engine.auth.google_oauth import ALL_SCOPES, get_youtube_client, get_youtube_client_for_account
 from content_engine.config import Settings
 from content_engine.download.yt_dlp_downloader import download_video
-from content_engine.errors import PipelineError, RunCancelledError, UploadFailedError
+from content_engine.errors import NoTranscriptAvailableError, PipelineError, RunCancelledError, UploadFailedError
 from content_engine.metadata.generate_metadata import generate_metadata
 from content_engine.models import ClipMetadata, GeneratedClip, PipelineResult, PlatformUploadOutcome
 from content_engine.notifications.dispatch import notify_upload_outcome
 from content_engine.render.clip_builder import build_clip
-from content_engine.search.youtube_search import build_search_client, search_videos, select_best, select_top
+from content_engine.search.youtube_search import build_search_client, search_videos, select_top
 from content_engine.transcript.fetch import get_transcript
 from content_engine.transcript.select_segment import select_best_segment, select_top_segments
 from content_engine.uploaders.instagram_uploader import InstagramUploader
@@ -24,6 +24,9 @@ from content_engine.uploaders.tiktok_uploader import TikTokUploader
 from content_engine.uploaders.youtube_uploader import YouTubeUploader
 
 ProgressCallback = Callable[[str, str], None]
+
+# Single runs try the next-best videos when the best one has no usable captions.
+MAX_CANDIDATES_TRIED = 3
 
 
 def _setup_logger(run_dir: Path) -> logging.Logger:
@@ -248,27 +251,40 @@ def run_pipeline(
         logger.info(text)
         notify("search", text)
 
-        best_video = select_best(candidates, topic)
-        text = f"Selected video {best_video.video_id}: {best_video.title}"
+        # Captions come first: they are cheap to fetch, decide the clip, and a
+        # video without usable captions is skipped before downloading it.
+        best_video, segment = None, None
+        last_error: PipelineError | None = None
+        for video in select_top(candidates, topic, count=MAX_CANDIDATES_TRIED):
+            check_cancelled()
+            text = f"Selected video {video.video_id}: {video.title}"
+            logger.info(text)
+            notify("search", text)
+            try:
+                transcript = get_transcript(video.video_id)
+                text = f"Fetched transcript with {len(transcript)} lines"
+                logger.info(text)
+                notify("transcript", text)
+                segment = select_best_segment(transcript, topic)
+            except NoTranscriptAvailableError as e:
+                last_error = e
+                text = f"Skipping {video.video_id}: {e}"
+                logger.warning(text)
+                notify("transcript", text)
+                continue
+            best_video = video
+            break
+        if best_video is None:
+            raise last_error
+        text = f"Selected segment {segment.start_s:.1f}-{segment.end_s:.1f}s (score={segment.score:.3f})"
         logger.info(text)
-        notify("search", text)
+        notify("segment", text)
 
         check_cancelled()
         download_result = download_video(best_video.video_id, run_dir)
         text = f"Downloaded video ({download_result.duration_s:.1f}s) to {download_result.video_path}"
         logger.info(text)
         notify("download", text)
-
-        check_cancelled()
-        transcript = get_transcript(best_video.video_id)
-        text = f"Fetched transcript with {len(transcript)} lines"
-        logger.info(text)
-        notify("transcript", text)
-
-        segment = select_best_segment(transcript, topic)
-        text = f"Selected segment {segment.start_s:.1f}-{segment.end_s:.1f}s (score={segment.score:.3f})"
-        logger.info(text)
-        notify("segment", text)
 
         check_cancelled()
         clip_path = build_clip(
@@ -412,16 +428,17 @@ def _clips_from_video(
 ) -> None:
     """Appends each finished clip to `generated` as it completes, so clips made
     before a later failure in the same video are still returned."""
-    download_result = download_video(video.video_id, video_work_dir)
-    text = f"Downloaded video {video_rank}/{video_total} ({download_result.duration_s:.1f}s): {video.title}"
-    logger.info(text)
-    notify("download", text)
-
+    # Captions first, so a video without them is skipped before downloading.
     transcript = get_transcript(video.video_id)
     segments = select_top_segments(transcript, topic, count=clips_per_video)
     text = f"Selected {len(segments)} segment(s) from video {video_rank}"
     logger.info(text)
     notify("segment", text)
+
+    download_result = download_video(video.video_id, video_work_dir)
+    text = f"Downloaded video {video_rank}/{video_total} ({download_result.duration_s:.1f}s): {video.title}"
+    logger.info(text)
+    notify("download", text)
 
     for clip_rank, segment in enumerate(segments, start=1):
         clip_run_id = uuid.uuid4().hex[:10]

@@ -72,7 +72,7 @@ def _patch_stages(tmp_path):
         "content_engine.pipeline",
         build_search_client=MagicMock(return_value=MagicMock()),
         search_videos=MagicMock(return_value=[video]),
-        select_best=MagicMock(return_value=video),
+        select_top=MagicMock(return_value=[video]),
         download_video=MagicMock(
             return_value=DownloadResult(video_path=tmp_path / "source.mp4", info_json_path=tmp_path / "i.json", duration_s=120.0)
         ),
@@ -126,3 +126,25 @@ def test_run_removes_source_video_keeps_clip_and_closes_log(tmp_path):
 
     assert logging.getLogger("content_engine.run.run42").handlers == []
     (run_dir / "run.log").unlink()  # would fail on Windows if the handle were still open
+
+
+def test_run_skips_a_video_without_captions_before_downloading_it(tmp_path):
+    from content_engine.errors import NoTranscriptAvailableError
+
+    settings = _fake_settings(tmp_path)
+    no_captions = VideoCandidate(video_id="bad", title="t", description="", channel="c", published_at="", duration_s=120.0)
+    good = VideoCandidate(video_id="good", title="t", description="", channel="c", published_at="", duration_s=120.0)
+
+    def transcript(video_id):
+        if video_id == "bad":
+            raise NoTranscriptAvailableError("no captions")
+        return [TranscriptLine("stoic text", 0.0, 30.0)]
+
+    with _patch_stages(tmp_path), patch("content_engine.pipeline.select_top", return_value=[no_captions, good]), patch(
+        "content_engine.pipeline.get_transcript", side_effect=transcript
+    ), patch("content_engine.pipeline.download_video", wraps=None) as download:
+        download.return_value = DownloadResult(video_path=tmp_path / "s.mp4", info_json_path=tmp_path / "i.json", duration_s=120.0)
+        result = run_pipeline("stoic philosophy", settings, dry_run=True)
+
+    assert result.source_video.video_id == "good"
+    assert [c.args[0] for c in download.call_args_list] == ["good"]  # the bad one was never downloaded

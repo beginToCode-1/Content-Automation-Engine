@@ -50,3 +50,9 @@ def test_no_cookies_option_when_unset(tmp_path, monkeypatch):
     seen, _ = _run_download(tmp_path / "run")
 
     assert "cookiefile" not in seen["opts"]
+
+
+def test_prefers_720p_then_h264(tmp_path, monkeypatch):
+    monkeypatch.delenv("YTDLP_COOKIES_FILE", raising=False)
+    seen, _ = _run_download(tmp_path / "run")
+    assert seen["opts"]["format_sort"][:2] == ["res:720", "vcodec:h264"]

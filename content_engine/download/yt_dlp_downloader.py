@@ -23,7 +23,12 @@ def download_video(video_id: str, dest_dir: Path) -> DownloadResult:
     outtmpl = str(dest_dir / "source.%(ext)s")
 
     ydl_opts = {
-        "format": "bv*[height<=1080]+ba/b[height<=1080]",
+        # The visible video in a vertical clip is only 1080x608, so 720p loses
+        # little, and H.264 decodes far faster than VP9/AV1 on Render's small CPU.
+        # Sorted, not filtered: resolution wins first (never drop to 360p just to
+        # get H.264), then H.264 at that resolution if YouTube has it.
+        "format": "bv*+ba/b",
+        "format_sort": ["res:720", "vcodec:h264", "acodec:aac"],
         "outtmpl": outtmpl,
         "merge_output_format": "mp4",
         "writeinfojson": True,

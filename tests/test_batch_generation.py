@@ -133,7 +133,7 @@ def test_batch_raises_when_every_video_fails(tmp_path):
         build_search_client=MagicMock(return_value=MagicMock()),
         search_videos=MagicMock(return_value=[_video("v1")]),
         select_top=MagicMock(return_value=[_video("v1")]),
-        download_video=MagicMock(side_effect=NoTranscriptAvailableError("nope")),
+        get_transcript=MagicMock(side_effect=NoTranscriptAvailableError("nope")),
     ):
         with pytest.raises(NoTranscriptAvailableError):
             generate_clips_for_topic("stoic", _fake_settings(tmp_path), batch_id="b1", videos_count=1, clips_per_video=1)
