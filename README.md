@@ -382,10 +382,12 @@ persistent disk, 512 MB RAM, a fraction of one CPU), not from bugs:
   every restart. For dependable schedules, use a paid always-on plan with a
   disk, or an external cron service that pings `/api/health` every 10 minutes.
 - **Rendering is slow.** A one-minute clip takes several minutes to render.
-- **Instagram and TikTok uploads don't work on Render as configured.** Instagram
-  needs `INSTAGRAM_PUBLIC_VIDEO_BASE_URL` set to the backend's public URL (the
-  automatic ngrok tunnel is local-only). TikTok's token is a local file created
-  by `python run.py --tiktok-auth`, which the container can't keep.
+- **Instagram on Render** fetches clips from the service's own public URL, which
+  Render provides automatically (`RENDER_EXTERNAL_URL`); set
+  `INSTAGRAM_PUBLIC_VIDEO_BASE_URL` only to override it. Instagram still needs
+  `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_BUSINESS_ACCOUNT_ID`.
+- **TikTok doesn't work on Render yet.** Its token is a local file created by
+  `python run.py --tiktok-auth`, which the container can't keep.
 
 ### Times and privacy
 

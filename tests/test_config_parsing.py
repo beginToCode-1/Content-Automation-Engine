@@ -24,3 +24,18 @@ def test_env_int_blank_uses_default_and_garbage_raises(monkeypatch):
     monkeypatch.setenv("X_NUM", "abc")
     with pytest.raises(ConfigError, match="X_NUM"):
         _env_int("X_NUM", 3)
+
+
+def test_instagram_video_url_falls_back_to_render_external_url(monkeypatch):
+    from content_engine.config import Settings
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://x")
+    monkeypatch.setenv("JWT_SECRET_KEY", "k")
+    monkeypatch.setenv("TOKEN_ENCRYPTION_KEY", "k")
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    monkeypatch.delenv("INSTAGRAM_PUBLIC_VIDEO_BASE_URL", raising=False)
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://app.onrender.com/")
+    assert Settings.load().instagram_public_video_base_url == "https://app.onrender.com"
+
+    monkeypatch.setenv("INSTAGRAM_PUBLIC_VIDEO_BASE_URL", "https://explicit.example")
+    assert Settings.load().instagram_public_video_base_url == "https://explicit.example"

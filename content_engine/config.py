@@ -192,7 +192,11 @@ class Settings:
             ),
             instagram_graph_api_version=os.getenv("INSTAGRAM_GRAPH_API_VERSION", "v21.0").strip(),
             instagram_public_video_base_url=(
-                os.getenv("INSTAGRAM_PUBLIC_VIDEO_BASE_URL", "").strip().rstrip("/") or None
+                # Render sets RENDER_EXTERNAL_URL to the service's public https address,
+                # which is exactly where Instagram must fetch /media/... from.
+                (os.getenv("INSTAGRAM_PUBLIC_VIDEO_BASE_URL", "").strip() or os.getenv("RENDER_EXTERNAL_URL", "").strip())
+                .rstrip("/")
+                or None
             ),
             tiktok_client_key=(os.getenv("TIKTOK_CLIENT_KEY", "").strip() or None),
             tiktok_client_secret=(os.getenv("TIKTOK_CLIENT_SECRET", "").strip() or None),
