@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import httplib2
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
@@ -51,6 +52,9 @@ class YouTubeUploader(Uploader):
             status = getattr(e, "status_code", None) or getattr(getattr(e, "resp", None), "status", None)
             retryable = status is None or status in {429, 500, 502, 503, 504}
             raise UploadFailedError(f"YouTube upload failed: {e}", retryable=retryable) from e
+        except (OSError, httplib2.HttpLib2Error) as e:
+            # Connection reset / timeout mid-upload: transient, worth retrying.
+            raise UploadFailedError(f"YouTube upload network error: {e}", retryable=True) from e
 
         video_id = response["id"]
         return UploadResult(

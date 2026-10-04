@@ -14,6 +14,15 @@ POLL_INTERVAL_S = 5
 POLL_TIMEOUT_S = 300
 
 
+def _json(response: requests.Response) -> dict:
+    """Error pages (e.g. a proxy's HTML 502) aren't JSON - treat them as an empty body."""
+    try:
+        data = response.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _status_retryable(status_code: int) -> bool:
     """5xx and 429 look transient; anything else (4xx auth/validation) won't
     be fixed by retrying."""
@@ -37,6 +46,14 @@ class InstagramUploader(Uploader):
 
     def upload(self, video_path: Path, metadata: ClipMetadata, privacy_status: str) -> UploadResult:
         settings = self._settings
+        # Instagram has no per-post privacy: a Reel is as visible as the account.
+        # So anything but an explicit "public" request is refused, rather than
+        # publishing it and reporting it as private (scheduled runs are forced private).
+        if privacy_status != "public":
+            raise UploadFailedError(
+                f"Instagram can't post a '{privacy_status}' Reel: Instagram has no per-post privacy, "
+                "so only runs with privacy set to 'public' are uploaded there."
+            )
         if not settings.instagram_access_token or not settings.instagram_business_account_id:
             raise UploadFailedError(
                 "Instagram is not configured: set INSTAGRAM_ACCESS_TOKEN and "
@@ -64,8 +81,6 @@ class InstagramUploader(Uploader):
         media_id = self._publish_container(container_id)
         permalink = self._get_permalink(media_id)
 
-        # Instagram has no per-post privacy flag - a Reel's visibility follows the
-        # account's own public/private setting, not anything this call can control.
         return UploadResult(
             video_id=media_id,
             url=permalink or f"https://www.instagram.com/reel/{media_id}/",
@@ -89,7 +104,7 @@ class InstagramUploader(Uploader):
         except requests.RequestException as e:
             raise UploadFailedError(f"Instagram container creation request failed: {e}", retryable=True) from e
 
-        data = response.json()
+        data = _json(response)
         if response.status_code != 200 or "id" not in data:
             raise UploadFailedError(
                 f"Instagram container creation failed: {data}", retryable=_status_retryable(response.status_code)
@@ -108,9 +123,16 @@ class InstagramUploader(Uploader):
                     params={"fields": "status_code", "access_token": settings.instagram_access_token},
                     timeout=30,
                 )
-                data = response.json()
             except requests.RequestException as e:
                 raise UploadFailedError(f"Instagram container status check failed: {e}", retryable=True) from e
+            data = _json(response)
+            if response.status_code != 200:
+                # e.g. an expired token: no status_code field, so without this the
+                # loop would sleep until the deadline and then retry the whole upload.
+                raise UploadFailedError(
+                    f"Instagram container status check failed: {data or response.status_code}",
+                    retryable=_status_retryable(response.status_code),
+                )
 
             status = data.get("status_code")
             if status == "FINISHED":
@@ -131,12 +153,16 @@ class InstagramUploader(Uploader):
                 timeout=30,
             )
         except requests.RequestException as e:
-            raise UploadFailedError(f"Instagram publish request failed: {e}", retryable=True) from e
+            # Not retryable: the Reel may already be live at Meta, and a retry
+            # would create and publish a second one.
+            raise UploadFailedError(
+                f"Instagram publish request failed (the Reel may still have been posted - check the account): {e}"
+            ) from e
 
-        data = response.json()
+        data = _json(response)
         if response.status_code != 200 or "id" not in data:
             raise UploadFailedError(
-                f"Instagram publish failed: {data}", retryable=_status_retryable(response.status_code)
+                f"Instagram publish failed (check the account before retrying): {data or response.status_code}"
             )
         return data["id"]
 
@@ -149,7 +175,6 @@ class InstagramUploader(Uploader):
                 params={"fields": "permalink", "access_token": settings.instagram_access_token},
                 timeout=30,
             )
-            data = response.json()
-            return data.get("permalink")
+            return _json(response).get("permalink")
         except requests.RequestException:
             return None

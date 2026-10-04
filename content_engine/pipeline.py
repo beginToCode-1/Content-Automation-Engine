@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import logging
+import shutil
 import threading
 import time
 import uuid
@@ -51,6 +52,20 @@ def _notify(on_progress: ProgressCallback | None, logger: logging.Logger, stage:
         on_progress(stage, message)
     except Exception:
         logger.exception("on_progress callback raised for stage=%s (ignored)", stage)
+
+
+def _delete_source_files(run_dir: Path) -> None:
+    """The downloaded source video (often hundreds of MB) is only needed to cut
+    the clip. The server's disk is small and ephemeral, so it is removed once
+    the run ends, success or failure; the finished clip is kept."""
+    for path in run_dir.glob("source.*"):
+        path.unlink(missing_ok=True)
+
+
+def _close_run_logger(logger: logging.Logger) -> None:
+    for handler in list(logger.handlers):
+        handler.close()
+        logger.removeHandler(handler)
 
 
 def _check_cancelled(cancel_event: threading.Event | None, run_id: str, logger: logging.Logger) -> None:
@@ -147,12 +162,13 @@ def upload_clip_to_platforms(
     logger = logger or logging.getLogger("content_engine.pipeline")
     label = notification_label or topic
 
-    if "youtube" in platforms and oauth_client is None:
-        oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
-
     upload_outcomes: list[PlatformUploadOutcome] = []
     for platform in platforms:
         try:
+            # Resolved inside the try: a revoked/expired YouTube token must fail
+            # only the YouTube upload, not abort the other platforms.
+            if platform == "youtube" and oauth_client is None:
+                oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
             if platform == "youtube" and oauth_client is None:
                 raise UploadFailedError(
                     "No YouTube OAuth client available for upload - a bare YOUTUBE_API_KEY only "
@@ -171,6 +187,14 @@ def upload_clip_to_platforms(
             outcome = PlatformUploadOutcome(platform=platform, result=None, error=str(e))
             text = f"Upload to {platform} failed: {e}"
             logger.error(text)
+            _notify(on_progress, logger, f"upload_{platform}", text)
+        except Exception as e:
+            # Anything unexpected (network error type an uploader didn't map, bad
+            # JSON, auth library error) is still just this platform's failure:
+            # the other platforms are attempted and their results are kept.
+            outcome = PlatformUploadOutcome(platform=platform, result=None, error=f"Unexpected error: {e}")
+            text = f"Upload to {platform} failed unexpectedly: {e}"
+            logger.exception(text)
             _notify(on_progress, logger, f"upload_{platform}", text)
 
         upload_outcomes.append(outcome)
@@ -247,7 +271,9 @@ def run_pipeline(
         notify("segment", text)
 
         check_cancelled()
-        clip_path = build_clip(download_result.video_path, segment, run_dir, title_overlay=topic)
+        clip_path = build_clip(
+            download_result.video_path, segment, run_dir, title_overlay=topic, check_cancelled=check_cancelled
+        )
         text = f"Built clip at {clip_path}"
         logger.info(text)
         notify("render", text)
@@ -306,6 +332,9 @@ def run_pipeline(
     except PipelineError as e:
         logger.error("Run failed: %s", e)
         raise
+    finally:
+        _delete_source_files(run_dir)
+        _close_run_logger(logger)
 
 
 def generate_clips_for_topic(
@@ -344,47 +373,80 @@ def generate_clips_for_topic(
     notify("search", text)
 
     generated: list[GeneratedClip] = []
+    last_error: PipelineError | None = None
     for video_rank, video in enumerate(videos, start=1):
         video_work_dir = settings.work_dir / batch_id / f"video{video_rank}_source"
         video_work_dir.mkdir(parents=True, exist_ok=True)
-
-        download_result = download_video(video.video_id, video_work_dir)
-        text = f"Downloaded video {video_rank}/{len(videos)} ({download_result.duration_s:.1f}s): {video.title}"
-        logger.info(text)
-        notify("download", text)
-
-        transcript = get_transcript(video.video_id)
-        segments = select_top_segments(transcript, topic, count=clips_per_video)
-        text = f"Selected {len(segments)} segment(s) from video {video_rank}"
-        logger.info(text)
-        notify("segment", text)
-
-        for clip_rank, segment in enumerate(segments, start=1):
-            clip_run_id = uuid.uuid4().hex[:10]
-            clip_work_dir = settings.work_dir / clip_run_id
-            clip_work_dir.mkdir(parents=True, exist_ok=True)
-
-            clip_path = build_clip(download_result.video_path, segment, clip_work_dir, title_overlay=topic)
-            notify("render", f"Built clip {clip_rank}/{len(segments)} for video {video_rank}: {clip_path}")
-
-            metadata = generate_metadata(topic, segment.text, settings.gemini_model, settings.gemini_api_key)
-            notify("metadata", f"Generated metadata for video {video_rank} clip {clip_rank}: {metadata.title}")
-
-            clip = GeneratedClip(
-                run_id=clip_run_id,
-                source_video=video,
-                segment=segment,
-                clip_path=clip_path,
-                metadata=metadata,
-                work_dir=clip_work_dir,
-                video_rank=video_rank,
-                clip_rank=clip_rank,
+        try:
+            _clips_from_video(
+                topic, settings, video, video_rank, len(videos), video_work_dir, clips_per_video,
+                notify, logger, on_clip_ready, generated,
             )
-            generated.append(clip)
-            if on_clip_ready:
-                try:
-                    on_clip_ready(clip, video_rank, clip_rank)
-                except Exception:
-                    logger.exception("on_clip_ready callback raised (ignored)")
+        except PipelineError as e:
+            # One video without a transcript (or a failed render) must not
+            # throw away the other videos in the batch.
+            last_error = e
+            text = f"Skipping video {video_rank}/{len(videos)} ({video.title}): {e}"
+            logger.warning(text)
+            notify("download", text)
+        finally:
+            shutil.rmtree(video_work_dir, ignore_errors=True)  # the full source video
 
+    if not generated and last_error is not None:
+        raise last_error
     return generated
+
+
+def _clips_from_video(
+    topic: str,
+    settings: Settings,
+    video,
+    video_rank: int,
+    video_total: int,
+    video_work_dir: Path,
+    clips_per_video: int,
+    notify: Callable[[str, str], None],
+    logger: logging.Logger,
+    on_clip_ready: Callable[[GeneratedClip, int, int], None] | None,
+    generated: list[GeneratedClip],
+) -> None:
+    """Appends each finished clip to `generated` as it completes, so clips made
+    before a later failure in the same video are still returned."""
+    download_result = download_video(video.video_id, video_work_dir)
+    text = f"Downloaded video {video_rank}/{video_total} ({download_result.duration_s:.1f}s): {video.title}"
+    logger.info(text)
+    notify("download", text)
+
+    transcript = get_transcript(video.video_id)
+    segments = select_top_segments(transcript, topic, count=clips_per_video)
+    text = f"Selected {len(segments)} segment(s) from video {video_rank}"
+    logger.info(text)
+    notify("segment", text)
+
+    for clip_rank, segment in enumerate(segments, start=1):
+        clip_run_id = uuid.uuid4().hex[:10]
+        clip_work_dir = settings.work_dir / clip_run_id
+        clip_work_dir.mkdir(parents=True, exist_ok=True)
+
+        clip_path = build_clip(download_result.video_path, segment, clip_work_dir, title_overlay=topic)
+        notify("render", f"Built clip {clip_rank}/{len(segments)} for video {video_rank}: {clip_path}")
+
+        metadata = generate_metadata(topic, segment.text, settings.gemini_model, settings.gemini_api_key)
+        notify("metadata", f"Generated metadata for video {video_rank} clip {clip_rank}: {metadata.title}")
+
+        clip = GeneratedClip(
+            run_id=clip_run_id,
+            source_video=video,
+            segment=segment,
+            clip_path=clip_path,
+            metadata=metadata,
+            work_dir=clip_work_dir,
+            video_rank=video_rank,
+            clip_rank=clip_rank,
+        )
+        generated.append(clip)
+        if on_clip_ready:
+            try:
+                on_clip_ready(clip, video_rank, clip_rank)
+            except Exception:
+                logger.exception("on_clip_ready callback raised (ignored)")

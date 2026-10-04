@@ -9,6 +9,43 @@ from content_engine.errors import ConfigError
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Accepts 1/0, true/false, yes/no, on/off. Blank means the default; anything
+    else is an error rather than silently meaning False."""
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    raise ConfigError(f"{name} must be true or false, got {raw!r}")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be a whole number, got {raw!r}") from None
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be a number, got {raw!r}") from None
+
 @dataclass
 class Settings:
     gemini_api_key: str
@@ -134,12 +171,12 @@ class Settings:
             # Railway/Render inject PORT and expect the app to bind 0.0.0.0 to it;
             # DASHBOARD_HOST/DASHBOARD_PORT still win if explicitly set, for local use.
             dashboard_host=os.getenv("DASHBOARD_HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1").strip(),
-            dashboard_port=int(os.getenv("DASHBOARD_PORT") or os.getenv("PORT", "8000")),
-            dashboard_max_workers=int(os.getenv("DASHBOARD_MAX_WORKERS", "2")),
+            dashboard_port=_env_int("DASHBOARD_PORT", _env_int("PORT", 8000)),
+            dashboard_max_workers=_env_int("DASHBOARD_MAX_WORKERS", 2),
             database_url=database_url,
-            scheduler_poll_interval_s=int(os.getenv("SCHEDULER_POLL_INTERVAL_S", "30")),
-            upload_max_retries=int(os.getenv("UPLOAD_MAX_RETRIES", "3")),
-            upload_retry_backoff_base_s=float(os.getenv("UPLOAD_RETRY_BACKOFF_BASE_S", "2")),
+            scheduler_poll_interval_s=_env_int("SCHEDULER_POLL_INTERVAL_S", 30),
+            upload_max_retries=_env_int("UPLOAD_MAX_RETRIES", 3),
+            upload_retry_backoff_base_s=_env_float("UPLOAD_RETRY_BACKOFF_BASE_S", 2),
             cors_allow_origins=[
                 origin.strip()
                 for origin in os.getenv("CORS_ALLOW_ORIGINS", "").split(",")
@@ -156,15 +193,15 @@ class Settings:
             tiktok_client_key=(os.getenv("TIKTOK_CLIENT_KEY", "").strip() or None),
             tiktok_client_secret=(os.getenv("TIKTOK_CLIENT_SECRET", "").strip() or None),
             tiktok_token_path=tiktok_token_path,
-            batch_default_stagger_minutes=int(os.getenv("BATCH_DEFAULT_STAGGER_MINUTES", "180")),
-            batch_max_videos=int(os.getenv("BATCH_MAX_VIDEOS", "5")),
-            batch_max_clips_per_video=int(os.getenv("BATCH_MAX_CLIPS_PER_VIDEO", "5")),
-            notifications_enabled=os.getenv("NOTIFICATIONS_ENABLED", "false").strip().lower() == "true",
-            notify_desktop_enabled=os.getenv("NOTIFY_DESKTOP_ENABLED", "true").strip().lower() == "true",
-            notify_email_enabled=os.getenv("NOTIFY_EMAIL_ENABLED", "true").strip().lower() == "true",
+            batch_default_stagger_minutes=_env_int("BATCH_DEFAULT_STAGGER_MINUTES", 180),
+            batch_max_videos=_env_int("BATCH_MAX_VIDEOS", 5),
+            batch_max_clips_per_video=_env_int("BATCH_MAX_CLIPS_PER_VIDEO", 5),
+            notifications_enabled=_env_bool("NOTIFICATIONS_ENABLED", False),
+            notify_desktop_enabled=_env_bool("NOTIFY_DESKTOP_ENABLED", True),
+            notify_email_enabled=_env_bool("NOTIFY_EMAIL_ENABLED", True),
             notify_email_to=(os.getenv("NOTIFY_EMAIL_TO", "").strip() or None),
             smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com").strip(),
-            smtp_port=int(os.getenv("SMTP_PORT", "587")),
+            smtp_port=_env_int("SMTP_PORT", 587),
             smtp_username=(os.getenv("SMTP_USERNAME", "").strip() or None),
             smtp_password=(os.getenv("SMTP_PASSWORD", "").strip() or None),
             smtp_from_address=(os.getenv("SMTP_FROM_ADDRESS", "").strip() or None),

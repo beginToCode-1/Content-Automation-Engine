@@ -106,3 +106,34 @@ def test_upload_rejects_video_larger_than_single_chunk_limit(tmp_path):
         ):
             with pytest.raises(UploadFailedError, match="single-chunk"):
                 uploader.upload(video_path, ClipMetadata(title="t", description="d"), "private")
+
+
+@pytest.mark.parametrize(
+    "status_side_effect",
+    [
+        "network",
+        "http_error",
+    ],
+)
+def test_status_poll_failure_after_bytes_sent_is_not_retryable(tmp_path, status_side_effect):
+    import requests
+
+    uploader = TikTokUploader(_configured_settings(tmp_path))
+    creator_info = _json_response(200, {"error": {"code": "ok"}, "data": {"privacy_level_options": ["SELF_ONLY"]}})
+    init_response = _json_response(
+        200, {"error": {"code": "ok"}, "data": {"publish_id": "pub123", "upload_url": "https://upload.example/x"}}
+    )
+    status = (
+        requests.ConnectionError("reset")
+        if status_side_effect == "network"
+        else _json_response(401, {"error": {"code": "access_token_invalid"}})
+    )
+
+    with patch("requests.post", side_effect=[creator_info, init_response, status]), patch(
+        "requests.put", return_value=MagicMock(status_code=201)
+    ), patch("content_engine.uploaders.tiktok_uploader.time.sleep") as sleep:
+        with pytest.raises(UploadFailedError, match="before retrying") as exc:
+            uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), "private")
+
+    assert exc.value.retryable is False
+    sleep.assert_not_called()

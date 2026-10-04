@@ -38,7 +38,7 @@ def test_upload_missing_config_raises_upload_failed_error(tmp_path):
     uploader = InstagramUploader(settings)
 
     with pytest.raises(UploadFailedError, match="not configured"):
-        uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), "private")
+        uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), "public")
 
 
 def test_upload_missing_public_base_url_raises_upload_failed_error(tmp_path):
@@ -48,7 +48,7 @@ def test_upload_missing_public_base_url_raises_upload_failed_error(tmp_path):
     uploader = InstagramUploader(settings)
 
     with pytest.raises(UploadFailedError, match="PUBLIC_VIDEO_BASE_URL"):
-        uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), "private")
+        uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), "public")
 
 
 def test_upload_happy_path_builds_correct_video_url_and_returns_permalink(tmp_path):
@@ -66,7 +66,7 @@ def test_upload_happy_path_builds_correct_video_url_and_returns_permalink(tmp_pa
     with patch("requests.post", side_effect=[responses[0], responses[2]]) as mock_post, patch(
         "requests.get", side_effect=[responses[1], responses[3]]
     ) as mock_get:
-        result = uploader.upload(video_path, ClipMetadata(title="t", description="d", hashtags=["x"]), "private")
+        result = uploader.upload(video_path, ClipMetadata(title="t", description="d", hashtags=["x"]), "public")
 
     assert result.video_id == "media789"
     assert result.url == "https://instagram.com/reel/media789/"
@@ -88,4 +88,37 @@ def test_upload_raises_when_container_errors(tmp_path):
         "requests.get", return_value=_json_response(200, {"status_code": "ERROR"})
     ):
         with pytest.raises(UploadFailedError, match="failed to process"):
-            uploader.upload(video_path, ClipMetadata(title="t", description="d"), "private")
+            uploader.upload(video_path, ClipMetadata(title="t", description="d"), "public")
+
+
+@pytest.mark.parametrize("privacy", ["private", "unlisted"])
+def test_upload_refuses_non_public_privacy_without_calling_instagram(tmp_path, privacy):
+    uploader = InstagramUploader(_configured_settings(tmp_path))
+    with patch("requests.post") as mock_post:
+        with pytest.raises(UploadFailedError, match="no per-post privacy") as exc:
+            uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), privacy)
+    mock_post.assert_not_called()
+    assert exc.value.retryable is False
+
+
+def test_status_poll_http_error_fails_fast_instead_of_waiting_for_timeout(tmp_path):
+    uploader = InstagramUploader(_configured_settings(tmp_path))
+    with patch("requests.post", return_value=_json_response(200, {"id": "container123"})), patch(
+        "requests.get", return_value=_json_response(400, {"error": {"message": "token expired"}})
+    ), patch("content_engine.uploaders.instagram_uploader.time.sleep") as sleep:
+        with pytest.raises(UploadFailedError, match="token expired") as exc:
+            uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), "public")
+    sleep.assert_not_called()
+    assert exc.value.retryable is False
+
+
+def test_publish_network_error_is_not_retryable(tmp_path):
+    import requests
+
+    uploader = InstagramUploader(_configured_settings(tmp_path))
+    with patch(
+        "requests.post", side_effect=[_json_response(200, {"id": "container123"}), requests.ConnectionError("reset")]
+    ), patch("requests.get", return_value=_json_response(200, {"status_code": "FINISHED"})):
+        with pytest.raises(UploadFailedError, match="may still have been posted") as exc:
+            uploader.upload(_fake_video_path(tmp_path), ClipMetadata(title="t", description="d"), "public")
+    assert exc.value.retryable is False

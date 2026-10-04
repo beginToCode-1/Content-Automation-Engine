@@ -125,6 +125,8 @@ class TikTokUploader(Uploader):
             )
 
     def _wait_for_publish(self, headers: dict, publish_id: str) -> None:
+        # The video bytes are already with TikTok here, so nothing below is
+        # retryable: a retry starts a brand-new post and can duplicate it.
         deadline = time.monotonic() + POLL_TIMEOUT_S
         while time.monotonic() < deadline:
             try:
@@ -136,7 +138,13 @@ class TikTokUploader(Uploader):
                 )
                 data = response.json()
             except requests.RequestException as e:
-                raise UploadFailedError(f"TikTok status fetch failed: {e}", retryable=True) from e
+                raise UploadFailedError(
+                    f"TikTok status fetch failed (the post may still complete - check TikTok before retrying): {e}"
+                ) from e
+            if response.status_code != 200:
+                raise UploadFailedError(
+                    f"TikTok status fetch failed (check TikTok before retrying): HTTP {response.status_code} {data}"
+                )
 
             status = data.get("data", {}).get("status")
             if status == "PUBLISH_COMPLETE":
@@ -145,4 +153,6 @@ class TikTokUploader(Uploader):
                 raise UploadFailedError(f"TikTok publish failed: {data}")
             time.sleep(POLL_INTERVAL_S)
 
-        raise UploadFailedError("Timed out waiting for TikTok publish to complete", retryable=True)
+        raise UploadFailedError(
+            "Timed out waiting for TikTok publish to complete (it may still finish - check TikTok before retrying)"
+        )
