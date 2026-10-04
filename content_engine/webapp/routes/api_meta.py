@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/meta")
-async def get_meta(
+def get_meta(
     settings: Settings = Depends(get_settings),
     pool: ConnectionPool = Depends(get_db_pool),
     user: dict = Depends(get_current_user),

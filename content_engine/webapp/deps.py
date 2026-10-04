@@ -35,8 +35,8 @@ def get_current_user(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """Decodes the Authorization: Bearer <jwt> header. Trusts the role/email
-    claims embedded in the token itself (no DB round trip per request) - a
-    role change only takes effect on that user's next login."""
+    claims embedded in the token itself (no DB round trip per request) for
+    reads. require_admin re-checks the role in the database."""
     if credentials is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -46,10 +46,17 @@ def get_current_user(
     return {"id": payload["sub"], "email": payload["email"], "role": payload["role"]}
 
 
-def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user["role"] != "admin":
+def require_admin(
+    user: dict = Depends(get_current_user), pool: ConnectionPool = Depends(get_db_pool)
+) -> dict:
+    # The token's role can be up to 7 days stale, so admin actions check the
+    # database: a demoted admin loses access at once, not at next login.
+    from content_engine.db import users_repo
+
+    db_user = users_repo.get_user_by_id(pool, user["id"])
+    if db_user is None or db_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin role required for this action")
-    return user
+    return {**user, "role": db_user["role"]}
 
 
 def channel_connection_status(settings: Settings, pool: ConnectionPool, user_id: str) -> list[dict]:

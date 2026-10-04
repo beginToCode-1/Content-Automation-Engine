@@ -1,7 +1,10 @@
+import hmac
 import logging
+import secrets
+from urllib.parse import quote
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from psycopg_pool import ConnectionPool
 
@@ -21,6 +24,10 @@ logger = logging.getLogger("content_engine.webapp.routes.api_oauth")
 
 router = APIRouter(prefix="/api")
 
+# Binds the Google consent flow to the browser that started it (see the callback).
+_NONCE_COOKIE = "yt_oauth_nonce"
+_NONCE_COOKIE_PATH = "/api/oauth/youtube"
+
 
 def _frontend_redirect(settings: Settings, path: str) -> str:
     base = settings.frontend_base_url or ""
@@ -28,7 +35,7 @@ def _frontend_redirect(settings: Settings, path: str) -> str:
 
 
 @router.post("/oauth/youtube/connect-ticket")
-async def create_connect_ticket(
+def create_connect_ticket(
     settings: Settings = Depends(get_settings), user: dict = Depends(get_current_user)
 ):
     """Issues a short-lived (2 minute), single-purpose ticket for the frontend
@@ -41,7 +48,7 @@ async def create_connect_ticket(
 
 
 @router.get("/oauth/youtube/connect")
-async def connect_youtube(
+def connect_youtube(
     ticket: str = Query(..., description="A short-lived connect ticket from POST "
     "/oauth/youtube/connect-ticket, passed as a query param since this endpoint is a full browser "
     "navigation (Google redirects the user's browser here directly, so there's no way to attach an "
@@ -53,31 +60,50 @@ async def connect_youtube(
     except (jwt.PyJWTError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid or expired ticket")
 
+    nonce = secrets.token_urlsafe(32)
     try:
-        state = create_oauth_state_token(settings.jwt_secret_key, user_id)
+        state = create_oauth_state_token(settings.jwt_secret_key, user_id, nonce)
         auth_url = google_oauth.build_web_auth_url(settings, state)
     except ConfigError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    return RedirectResponse(auth_url, status_code=302)
+    response = RedirectResponse(auth_url, status_code=302)
+    # SameSite=Lax still sends the cookie on Google's top-level redirect back to
+    # the callback, which lives on this same backend origin.
+    response.set_cookie(
+        _NONCE_COOKIE,
+        nonce,
+        max_age=600,
+        path=_NONCE_COOKIE_PATH,
+        httponly=True,
+        samesite="lax",
+        secure=(settings.google_oauth_redirect_uri or "").startswith("https://"),
+    )
+    return response
 
 
 @router.get("/oauth/youtube/callback")
-async def youtube_callback(
+def youtube_callback(
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
+    nonce_cookie: str | None = Cookie(None, alias=_NONCE_COOKIE),
     settings: Settings = Depends(get_settings),
     pool: ConnectionPool = Depends(get_db_pool),
 ):
     if error:
-        return RedirectResponse(_frontend_redirect(settings, f"/accounts?error={error}"), status_code=302)
+        # quote(): the provider's value must not be able to add its own query params.
+        return RedirectResponse(_frontend_redirect(settings, f"/accounts?error={quote(error, safe='')}"), status_code=302)
     if not code or not state:
         return RedirectResponse(_frontend_redirect(settings, "/accounts?error=missing_code"), status_code=302)
 
     try:
-        user_id = decode_oauth_state_token(settings.jwt_secret_key, state)
+        user_id, nonce = decode_oauth_state_token(settings.jwt_secret_key, state)
     except (jwt.PyJWTError, ValueError):
+        return RedirectResponse(_frontend_redirect(settings, "/accounts?error=invalid_state"), status_code=302)
+    # Without this check, a consent link started by one user could be forwarded to
+    # someone else, whose channel would then be saved under the first user's account.
+    if not nonce_cookie or not hmac.compare_digest(nonce_cookie, nonce):
         return RedirectResponse(_frontend_redirect(settings, "/accounts?error=invalid_state"), status_code=302)
 
     try:
@@ -100,16 +126,18 @@ async def youtube_callback(
         scopes=list(creds.scopes or []),
     )
 
-    return RedirectResponse(_frontend_redirect(settings, "/accounts?connected=youtube"), status_code=302)
+    response = RedirectResponse(_frontend_redirect(settings, "/accounts?connected=youtube"), status_code=302)
+    response.delete_cookie(_NONCE_COOKIE, path=_NONCE_COOKIE_PATH)  # one use only
+    return response
 
 
 @router.get("/accounts")
-async def list_accounts(pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)):
+def list_accounts(pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)):
     return {"accounts": connected_accounts_repo.list_accounts_public(pool, user["id"])}
 
 
 @router.delete("/accounts/{account_id}")
-async def disconnect_account(
+def disconnect_account(
     account_id: str, pool: ConnectionPool = Depends(get_db_pool), user: dict = Depends(get_current_user)
 ):
     try:

@@ -39,23 +39,25 @@ def decode_access_token(secret_key: str, token: str) -> dict:
     return jwt.decode(token, secret_key, algorithms=[JWT_ALGORITHM])
 
 
-def create_oauth_state_token(secret_key: str, user_id: str) -> str:
+def create_oauth_state_token(secret_key: str, user_id: str, nonce: str) -> str:
     """Short-lived, single-purpose token passed as the OAuth `state` param so
     the callback (which Google redirects to directly, no Authorization header)
     can recover which user initiated the connect flow, and so a state value
-    can't be reused as - or forged from - a real session token."""
+    can't be reused as - or forged from - a real session token. `nonce` is also
+    set as a cookie in the browser that started the flow; the callback requires
+    both to match, so a consent link can't be forwarded to someone else."""
     now = datetime.now(timezone.utc)
-    payload = {"sub": user_id, "purpose": "oauth_state", "iat": now, "exp": now + OAUTH_STATE_TTL}
+    payload = {"sub": user_id, "nonce": nonce, "purpose": "oauth_state", "iat": now, "exp": now + OAUTH_STATE_TTL}
     return jwt.encode(payload, secret_key, algorithm=JWT_ALGORITHM)
 
 
-def decode_oauth_state_token(secret_key: str, token: str) -> str:
-    """Returns the user_id. Raises jwt.PyJWTError on any failure, or ValueError
-    if the token is well-formed but wasn't issued for this purpose."""
+def decode_oauth_state_token(secret_key: str, token: str) -> tuple[str, str]:
+    """Returns (user_id, nonce). Raises jwt.PyJWTError on any failure, or
+    ValueError if the token is well-formed but wasn't issued for this purpose."""
     payload = jwt.decode(token, secret_key, algorithms=[JWT_ALGORITHM])
-    if payload.get("purpose") != "oauth_state":
+    if payload.get("purpose") != "oauth_state" or not payload.get("nonce"):
         raise ValueError("Not an OAuth state token")
-    return payload["sub"]
+    return payload["sub"], payload["nonce"]
 
 
 def create_connect_ticket_token(secret_key: str, user_id: str) -> str:

@@ -108,3 +108,19 @@ def test_viewer_cannot_update_role(client):
         headers=_auth_headers(viewer["access_token"]),
     )
     assert res.status_code == 403
+
+
+def test_demoted_admin_loses_admin_access_without_logging_in_again(client):
+    first = _register(client, "admin@example.com")
+    second = _register(client, "second@example.com")
+    first_headers = _auth_headers(first["access_token"])
+    client.put(f"/api/users/{second['user']['id']}/role", json={"role": "admin"}, headers=first_headers)
+    second_token = client.post(
+        "/api/auth/login", json={"email": "second@example.com", "password": "password123"}
+    ).json()["access_token"]
+
+    # second (holding a token that still says "admin") is demoted by first
+    client.put(f"/api/users/{second['user']['id']}/role", json={"role": "viewer"}, headers=first_headers)
+
+    res = client.get("/api/users", headers=_auth_headers(second_token))
+    assert res.status_code == 403

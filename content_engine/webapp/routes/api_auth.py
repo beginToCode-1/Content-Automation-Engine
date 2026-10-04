@@ -42,7 +42,7 @@ def _issue_token(settings: Settings, user_id: str, email: str, role: str) -> Tok
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(
+def register(
     payload: RegisterRequest,
     settings: Settings = Depends(get_settings),
     pool: ConnectionPool = Depends(get_db_pool),
@@ -72,7 +72,7 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(
+def login(
     payload: LoginRequest,
     settings: Settings = Depends(get_settings),
     pool: ConnectionPool = Depends(get_db_pool),
@@ -86,5 +86,5 @@ async def login(
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: dict = Depends(get_current_user)):
+def me(user: dict = Depends(get_current_user)):
     return UserOut(**user)

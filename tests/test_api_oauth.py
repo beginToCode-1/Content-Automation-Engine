@@ -132,3 +132,24 @@ def test_disconnect_account_requires_ownership(client):
 
     res_owner = client.delete(f"/api/accounts/{account_id}", headers=_auth_headers(user_a["access_token"]))
     assert res_owner.status_code == 200
+
+
+def test_callback_rejects_consent_link_completed_in_another_browser(client, pg_pool):
+    """A consent link started by one user and finished in a different browser
+    (no matching nonce cookie) must not attach that browser's channel."""
+    token = _register(client, "attacker@example.com")["access_token"]
+    ticket = client.post("/api/oauth/youtube/connect-ticket", headers=_auth_headers(token)).json()["ticket"]
+    connect_res = client.get("/api/oauth/youtube/connect", params={"ticket": ticket}, follow_redirects=False)
+    state = connect_res.headers["location"].split("state=")[1].split("&")[0]
+
+    client.cookies.clear()  # the victim's browser never saw the nonce cookie
+    with patch("content_engine.webapp.routes.api_oauth.google_oauth.exchange_code_for_credentials") as exchange:
+        res = client.get("/api/oauth/youtube/callback", params={"code": "c", "state": state}, follow_redirects=False)
+
+    assert "error=invalid_state" in res.headers["location"]
+    exchange.assert_not_called()
+
+
+def test_callback_error_param_is_url_encoded(client):
+    res = client.get("/api/oauth/youtube/callback", params={"error": "x&connected=youtube"}, follow_redirects=False)
+    assert "connected=youtube" not in res.headers["location"].split("?", 1)[1].split("&")
