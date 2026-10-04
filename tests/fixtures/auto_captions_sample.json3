@@ -1,0 +1,184 @@
+{
+ "events": [
+  {
+   "tStartMs": 0,
+   "dDurationMs": 4581800,
+   "id": 1,
+   "wpWinPosId": 1,
+   "wsWinStyleId": 1
+  },
+  {
+   "tStartMs": 1199,
+   "dDurationMs": 2761,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "in",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " this",
+     "tOffsetMs": 201,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " video",
+     "tOffsetMs": 361,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " we're",
+     "tOffsetMs": 561,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " going",
+     "tOffsetMs": 681,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " to",
+     "tOffsetMs": 760,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " go",
+     "tOffsetMs": 921,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " over",
+     "tOffsetMs": 1121,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " a",
+     "tOffsetMs": 1521,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 2950,
+   "dDurationMs": 1010,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 2960,
+   "dDurationMs": 4160,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "basic",
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 3950,
+   "dDurationMs": 3170,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 3960,
+   "dDurationMs": 6599,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "introduction",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " slash",
+     "tOffsetMs": 1000,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " overview",
+     "tOffsetMs": 1440,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " of",
+     "tOffsetMs": 2439,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " College",
+     "tOffsetMs": 2680,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 7110,
+   "dDurationMs": 3449,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  },
+  {
+   "tStartMs": 7120,
+   "dDurationMs": 8400,
+   "wWinId": 1,
+   "segs": [
+    {
+     "utf8": "Algebra",
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " so",
+     "tOffsetMs": 1000,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " let's",
+     "tOffsetMs": 1120,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " begin",
+     "tOffsetMs": 1320,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " with",
+     "tOffsetMs": 1559,
+     "acAsrConf": 0
+    },
+    {
+     "utf8": " some",
+     "tOffsetMs": 1720,
+     "acAsrConf": 0
+    }
+   ]
+  },
+  {
+   "tStartMs": 10549,
+   "dDurationMs": 4971,
+   "wWinId": 1,
+   "aAppend": 1,
+   "segs": [
+    {
+     "utf8": "\n"
+    }
+   ]
+  }
+ ]
+}

@@ -39,3 +39,19 @@ def test_search_videos_skips_items_missing_video_id():
     videos_list_call = client.videos.return_value.list
     called_ids = videos_list_call.call_args.kwargs["id"]
     assert called_ids == "abc123,def456"
+
+
+def test_select_best_skips_too_short_and_too_long_videos():
+    import pytest
+
+    from content_engine.errors import SearchFailedError
+    from content_engine.models import VideoCandidate
+    from content_engine.search.youtube_search import select_best, select_top
+
+    def cand(vid, dur):
+        return VideoCandidate(video_id=vid, title="stoicism talk", description="", channel="c", published_at="", duration_s=dur)
+
+    picked = select_best([cand("short", 30), cand("podcast", 3 * 3600), cand("ok", 600)], "stoicism")
+    assert picked.video_id == "ok"
+    with pytest.raises(SearchFailedError):
+        select_top([cand("short", 30), cand("podcast", 3 * 3600)], "stoicism", count=2)

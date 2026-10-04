@@ -88,5 +88,14 @@ def test_cancel_run_before_start_still_works(pg_pool, tmp_path):
             assert "before it started" in row["error_message"]
 
             release_first.set()
+            # Let the first run finish while the stage mocks are still active;
+            # otherwise it carries on after this block with real network calls.
+            deadline = time.monotonic() + 5
+            while (
+                runs_repo.get_run(pg_pool, first_run_id)["status"] not in ("succeeded", "failed", "cancelled")
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.05)
+            assert runs_repo.get_run(pg_pool, first_run_id)["status"] == "succeeded"
     finally:
         executor.shutdown_executor()

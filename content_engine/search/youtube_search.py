@@ -85,30 +85,30 @@ def search_videos(topic: str, max_results: int = 15, client: Resource | None = N
     return candidates
 
 
+# The whole source video is downloaded to cut one short clip; anything longer
+# than an hour costs minutes of download and GBs of the server's small disk.
+MAX_SOURCE_DURATION_S = 3600
+
+
 def select_best(candidates: list[VideoCandidate], topic: str, min_duration_s: int = 90) -> VideoCandidate:
-    eligible = [c for c in candidates if (c.duration_s or 0) >= min_duration_s]
+    return select_top(candidates, topic, count=1, min_duration_s=min_duration_s)[0]
+
+
+def select_top(
+    candidates: list[VideoCandidate],
+    topic: str,
+    count: int,
+    min_duration_s: int = 90,
+    max_duration_s: int = MAX_SOURCE_DURATION_S,
+) -> list[VideoCandidate]:
+    """Scores eligible candidates by relevance to the topic and returns the top
+    `count` distinct videos. Returns fewer than `count` if fewer eligible
+    candidates exist - callers must handle a shorter-than-requested list."""
+    eligible = [c for c in candidates if min_duration_s <= (c.duration_s or 0) <= max_duration_s]
     if not eligible:
         raise SearchFailedError(
-            f"No candidate video is long enough (>= {min_duration_s}s) to extract a short segment from"
-        )
-
-    documents = [f"{c.title} {c.description}" for c in eligible]
-    scores = relevance_scores(topic, documents)
-    for candidate, score in zip(eligible, scores):
-        candidate.score = score
-
-    eligible.sort(key=lambda c: (c.score or 0.0, c.view_count or 0), reverse=True)
-    return eligible[0]
-
-
-def select_top(candidates: list[VideoCandidate], topic: str, count: int, min_duration_s: int = 90) -> list[VideoCandidate]:
-    """Same eligibility filter and scoring as select_best, but returns the top
-    `count` distinct videos instead of one. Returns fewer than `count` if fewer
-    eligible candidates exist - callers must handle a shorter-than-requested list."""
-    eligible = [c for c in candidates if (c.duration_s or 0) >= min_duration_s]
-    if not eligible:
-        raise SearchFailedError(
-            f"No candidate video is long enough (>= {min_duration_s}s) to extract a short segment from"
+            f"No candidate video is between {min_duration_s}s and {max_duration_s // 60} minutes long "
+            "to extract a short segment from"
         )
 
     documents = [f"{c.title} {c.description}" for c in eligible]

@@ -1,4 +1,5 @@
 import json
+import textwrap
 import subprocess
 from pathlib import Path
 from typing import Literal
@@ -14,6 +15,10 @@ _TIMEOUT_S = 600
 # ponytail: fixed low-memory settings, make them configurable if a bigger box wants speed.
 _FFMPEG = ["ffmpeg", "-y", "-threads", "1"]
 _X264 = ["-c:v", "libx264", "-preset", "veryfast", "-threads", "1"]
+
+_TITLE_WRAP_CHARS = 24  # fits a 1080-wide frame at fontsize 60
+_TITLE_MAX_LINES = 3
+_TITLE_LINE_HEIGHT = 90
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess:
@@ -97,29 +102,25 @@ def _escape_filter_path(path: Path) -> str:
     return str(path).replace("\\", "/").replace(":", "\\:")
 
 
-def _escape_drawtext(text: str) -> str:
-    # "%" must be escaped too - ffmpeg's drawtext defaults to expansion=normal,
-    # which otherwise interprets "%{...}" sequences in arbitrary (user/topic-
-    # supplied) title text as expansion directives instead of literal text.
-    return (
-        text.replace("\\", "\\\\")
-        .replace(":", "\\:")
-        .replace("'", "\\'")
-        .replace("%", "\\%")
-    )
-
-
 def burn_captions(src: Path, srt_path: Path, dest: Path, title_text: str | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     # MarginV is in libass's 288-line script space: 55 lifts captions to just under the
     # centered video, clear of the Shorts/Reels/TikTok buttons covering the bottom.
     filters = [f"subtitles='{_escape_filter_path(srt_path)}':force_style='MarginV=55'"]
     if title_text:
-        escaped_title = _escape_drawtext(title_text)
-        filters.append(
-            f"drawtext=text='{escaped_title}':fontsize=60:fontcolor=white:"
-            "x=(w-text_w)/2:y=80:box=1:boxcolor=black@0.5:boxborderw=15"
-        )
+        # The title comes from the user's topic. It is read from a file with
+        # expansion off instead of being escaped into the filter string, so
+        # quotes, commas, colons and % can't break the filter or vanish.
+        # Long titles wrap; each line is drawn separately so every line is centered.
+        lines = textwrap.wrap(" ".join(title_text.split()), _TITLE_WRAP_CHARS)[:_TITLE_MAX_LINES]
+        for i, line in enumerate(lines):
+            line_file = dest.parent / f"title_{i}.txt"
+            line_file.write_text(line, encoding="utf-8")
+            filters.append(
+                f"drawtext=textfile='{_escape_filter_path(line_file)}':expansion=none:"
+                f"fontsize=60:fontcolor=white:x=(w-text_w)/2:y={80 + i * _TITLE_LINE_HEIGHT}:"
+                "box=1:boxcolor=black@0.5:boxborderw=15"
+            )
     _run(
         [
             *_FFMPEG,

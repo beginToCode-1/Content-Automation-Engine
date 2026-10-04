@@ -59,8 +59,21 @@ def test_burn_captions_includes_subtitles_and_title_filters(tmp_path):
     vf_index = args.index("-vf")
     filter_str = args[vf_index + 1]
     assert "subtitles=" in filter_str
-    assert "drawtext=" in filter_str
-    assert "My Title" in filter_str
+    assert "drawtext=textfile=" in filter_str and "expansion=none" in filter_str
+    assert (tmp_path / "title_0.txt").read_text(encoding="utf-8") == "My Title"
+
+
+def test_burn_captions_wraps_long_titles_one_drawtext_per_line(tmp_path):
+    with patch("subprocess.run", return_value=_ok_result()) as mock_run:
+        ffmpeg_ops.burn_captions(
+            tmp_path / "src.mp4", tmp_path / "seg.srt", tmp_path / "out.mp4",
+            title_text="best productivity tips for remote software engineers",
+        )
+    filter_str = mock_run.call_args[0][0][mock_run.call_args[0][0].index("-vf") + 1]
+    assert filter_str.count("drawtext=") == 3
+    lines = [(tmp_path / f"title_{i}.txt").read_text(encoding="utf-8") for i in range(3)]
+    assert " ".join(lines) == "best productivity tips for remote software engineers"
+    assert all(len(line) <= 24 for line in lines)
 
 
 def test_run_raises_render_failed_error_on_nonzero_exit():
@@ -70,3 +83,23 @@ def test_run_raises_render_failed_error_on_nonzero_exit():
     with patch("subprocess.run", return_value=failing_result):
         with pytest.raises(RenderFailedError):
             ffmpeg_ops._run(["ffmpeg", "-bad-flag"])
+
+
+def test_build_clip_stops_between_ffmpeg_passes_when_cancelled(tmp_path):
+    import pytest
+
+    from content_engine.errors import RunCancelledError
+    from content_engine.models import TranscriptLine, TranscriptSegment
+    from content_engine.render import clip_builder
+
+    def cancel():
+        raise RunCancelledError("Run cancelled by user")
+
+    seg = TranscriptSegment(0, 10, "t", [TranscriptLine("t", 0, 10)], 1.0)
+    with patch.object(clip_builder.ffmpeg_ops, "cut") as cut, patch.object(
+        clip_builder.ffmpeg_ops, "to_vertical"
+    ) as vertical:
+        with pytest.raises(RunCancelledError):
+            clip_builder.build_clip(tmp_path / "s.mp4", seg, tmp_path, check_cancelled=cancel)
+    cut.assert_called_once()
+    vertical.assert_not_called()

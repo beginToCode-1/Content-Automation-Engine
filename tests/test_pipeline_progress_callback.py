@@ -108,3 +108,21 @@ def test_on_progress_exception_does_not_abort_pipeline(tmp_path):
 
     assert result.run_id
     assert result.upload is None
+
+
+def test_run_removes_source_video_keeps_clip_and_closes_log(tmp_path):
+    settings = _fake_settings(tmp_path)
+    run_dir = settings.work_dir / "run42"
+    run_dir.mkdir(parents=True)
+    (run_dir / "source.mp4").write_bytes(b"big source")
+    (run_dir / "source.info.json").write_text("{}")
+
+    with _patch_stages(tmp_path):
+        result = run_pipeline("stoic philosophy", settings, dry_run=True, run_id="run42")
+
+    assert not list(run_dir.glob("source.*"))
+    assert result.clip_path.exists()
+    import logging
+
+    assert logging.getLogger("content_engine.run.run42").handlers == []
+    (run_dir / "run.log").unlink()  # would fail on Windows if the handle were still open

@@ -91,3 +91,49 @@ def test_generate_clips_for_topic_on_clip_ready_failure_does_not_abort(tmp_path)
         )
 
     assert len(clips) == 1
+
+
+def test_one_failing_video_does_not_stop_the_rest_of_the_batch(tmp_path):
+    from content_engine.errors import NoTranscriptAvailableError
+
+    settings = _fake_settings(tmp_path)
+    videos = [_video("v1"), _video("v2")]
+
+    def transcript(video_id):
+        if video_id == "v1":
+            raise NoTranscriptAvailableError("no captions")
+        return [TranscriptLine("stoic text", 0, 200)]
+
+    with patch.multiple(
+        "content_engine.pipeline",
+        build_search_client=MagicMock(return_value=MagicMock()),
+        search_videos=MagicMock(return_value=videos),
+        select_top=MagicMock(return_value=videos),
+        download_video=MagicMock(
+            return_value=DownloadResult(video_path=tmp_path / "source.mp4", info_json_path=tmp_path / "i.json", duration_s=200)
+        ),
+        get_transcript=MagicMock(side_effect=transcript),
+        select_top_segments=MagicMock(return_value=[_segment(0)]),
+        build_clip=MagicMock(return_value=tmp_path / "clip.mp4"),
+        generate_metadata=MagicMock(return_value=ClipMetadata(title="t", description="d")),
+    ):
+        clips = generate_clips_for_topic("stoic", settings, batch_id="b1", videos_count=2, clips_per_video=1)
+
+    assert [c.video_rank for c in clips] == [2]
+    assert not (settings.work_dir / "b1" / "video1_source").exists()  # source removed
+
+
+def test_batch_raises_when_every_video_fails(tmp_path):
+    import pytest
+
+    from content_engine.errors import NoTranscriptAvailableError
+
+    with patch.multiple(
+        "content_engine.pipeline",
+        build_search_client=MagicMock(return_value=MagicMock()),
+        search_videos=MagicMock(return_value=[_video("v1")]),
+        select_top=MagicMock(return_value=[_video("v1")]),
+        download_video=MagicMock(side_effect=NoTranscriptAvailableError("nope")),
+    ):
+        with pytest.raises(NoTranscriptAvailableError):
+            generate_clips_for_topic("stoic", _fake_settings(tmp_path), batch_id="b1", videos_count=1, clips_per_video=1)
