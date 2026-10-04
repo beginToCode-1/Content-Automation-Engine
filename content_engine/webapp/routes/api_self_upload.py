@@ -21,6 +21,9 @@ from content_engine.webapp.routes.api_runs import VALID_PLATFORMS
 
 router = APIRouter(prefix="/api")
 
+# Shorts/Reels/TikToks are short; this keeps one upload from filling the small disk.
+MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+
 
 @router.post("/self-upload/draft")
 async def create_draft(
@@ -42,8 +45,16 @@ async def create_draft(
     draft_dir.mkdir(parents=True, exist_ok=True)
     dest_path = draft_dir / CLIP_FILENAME
 
+    written = 0
     with dest_path.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+        while chunk := file.file.read(1024 * 1024):
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                break
+            out.write(chunk)
+    if written > MAX_UPLOAD_BYTES:
+        shutil.rmtree(draft_dir, ignore_errors=True)
+        raise HTTPException(status_code=413, detail=f"Video is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB")
 
     (draft_dir / "draft.json").write_text(
         json.dumps({"hint": hint, "original_filename": filename, "user_id": user["id"]}), encoding="utf-8"

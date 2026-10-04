@@ -39,8 +39,7 @@ def test_users_email_unique_index_is_case_insensitive(pg_pool):
 def test_migrations_are_applied_and_recorded_exactly_once(pg_pool):
     with pg_pool.connection() as conn:
         rows = conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
-    # 0001_add_cancelled_run_status.sql is this repo's first real forward
-    # migration - pg_pool's session-scoped setup (init_db, via conftest.py)
-    # already applied it once, so it should be recorded exactly once here,
-    # not reapplied or duplicated by any later init_db() call in this test run.
-    assert [r["version"] for r in rows] == [1]
+    # pg_pool's session-scoped setup (init_db, via conftest.py) already applied
+    # every migration once, so each should be recorded exactly once here, not
+    # reapplied or duplicated by any later init_db() call in this test run.
+    assert [r["version"] for r in rows] == [1, 2]

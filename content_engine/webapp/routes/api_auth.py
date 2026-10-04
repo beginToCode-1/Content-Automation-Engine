@@ -1,4 +1,7 @@
 import re
+import threading
+import time
+from collections import defaultdict, deque
 
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg_pool import ConnectionPool
@@ -12,6 +15,22 @@ from content_engine.webapp.deps import get_current_user, get_db_pool, get_settin
 router = APIRouter(prefix="/api/auth")
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Slows password guessing: after this many wrong passwords for one email within
+# the window, logins for that email are refused until the oldest failure ages out.
+# ponytail: in-memory, per process (this app runs one) - resets on restart;
+# move to the database if the backend ever runs more than one instance.
+_MAX_FAILED_LOGINS = 10
+_FAILED_LOGIN_WINDOW_S = 15 * 60
+_failed_logins: dict[str, deque] = defaultdict(deque)
+_failed_logins_lock = threading.Lock()
+
+
+def _recent_failures(email: str, now: float) -> deque:
+    failures = _failed_logins[email]
+    while failures and now - failures[0] > _FAILED_LOGIN_WINDOW_S:
+        failures.popleft()
+    return failures
 
 
 class RegisterRequest(BaseModel):
@@ -78,9 +97,16 @@ def login(
     pool: ConnectionPool = Depends(get_db_pool),
 ):
     email = payload.email.strip().lower()
+    with _failed_logins_lock:
+        if len(_recent_failures(email, time.monotonic())) >= _MAX_FAILED_LOGINS:
+            raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
     user = users_repo.get_user_by_email(pool, email)
     if user is None or not verify_password(payload.password, user["password_hash"]):
+        with _failed_logins_lock:
+            _recent_failures(email, time.monotonic()).append(time.monotonic())
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    with _failed_logins_lock:
+        _failed_logins.pop(email, None)
 
     return _issue_token(settings, user["id"], user["email"], user["role"])
 

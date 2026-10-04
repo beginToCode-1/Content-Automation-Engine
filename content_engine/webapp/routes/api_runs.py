@@ -174,25 +174,34 @@ async def retry_run(
         )
         return {"run_id": run_id}
 
-    new_run_id = await run_in_threadpool(
-        executor.submit_run,
-        settings,
-        topic=run["topic"],
-        trigger_source="web",
-        target_platforms=platforms,
-        # A retry must do what the original run was asked to do: a failed
-        # "Generate only" run must not upload on retry, and a scheduled run
-        # stays forced private.
-        dry_run=bool(run["dry_run"]),
-        privacy_override=privacy,
-        force_private=run["trigger_source"] == "scheduled",
-        user_id=user["id"],
-        # Retry reuses the account the original run was tied to - if it was
-        # disconnected since then, get_youtube_client_for_account raises a
-        # clear ConfigError that surfaces as this run's failure message,
-        # rather than silently re-resolving to some other connected account.
-        youtube_account_id=run["youtube_account_id"],
-    )
+    claimed = await run_in_threadpool(runs_repo.try_claim_for_retry, pool, run_id)
+    if not claimed:
+        raise HTTPException(status_code=409, detail="This run has already been retried")
+    try:
+        new_run_id = await run_in_threadpool(
+            executor.submit_run,
+            settings,
+            topic=run["topic"],
+            trigger_source="web",
+            target_platforms=platforms,
+            # A retry must do what the original run was asked to do: a failed
+            # "Generate only" run must not upload on retry, and a scheduled run
+            # stays forced private.
+            dry_run=bool(run["dry_run"]),
+            privacy_override=privacy,
+            force_private=run["trigger_source"] == "scheduled",
+            user_id=user["id"],
+            # Retry reuses the account the original run was tied to - if it was
+            # disconnected since then, get_youtube_client_for_account raises a
+            # clear ConfigError that surfaces as this run's failure message,
+            # rather than silently re-resolving to some other connected account.
+            youtube_account_id=run["youtube_account_id"],
+        )
+    except Exception:
+        # Couldn't start the retry: release the claim so it can be tried again.
+        await run_in_threadpool(runs_repo.update_fields, pool, run_id, retried_as=None)
+        raise
+    await run_in_threadpool(runs_repo.update_fields, pool, run_id, retried_as=new_run_id)
     return {"run_id": new_run_id}
 
 

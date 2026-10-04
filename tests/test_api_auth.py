@@ -134,3 +134,27 @@ def test_get_run_not_owned_returns_404_not_403(client):
 
     res = client.get("/api/runs/other-run", headers=_auth_headers(admin["access_token"]))
     assert res.status_code == 404
+
+
+def test_login_is_refused_after_too_many_wrong_passwords(client):
+    from content_engine.webapp.routes import api_auth
+
+    _register(client, "target@example.com")
+    try:
+        for _ in range(api_auth._MAX_FAILED_LOGINS):
+            res = client.post("/api/auth/login", json={"email": "target@example.com", "password": "wrong-password"})
+            assert res.status_code == 401
+        # even the right password is refused while locked
+        res = client.post("/api/auth/login", json={"email": "target@example.com", "password": "password123"})
+        assert res.status_code == 429
+    finally:
+        api_auth._failed_logins.clear()
+
+
+def test_successful_login_clears_earlier_failures(client):
+    from content_engine.webapp.routes import api_auth
+
+    _register(client, "user2@example.com")
+    client.post("/api/auth/login", json={"email": "user2@example.com", "password": "wrong-password"})
+    assert client.post("/api/auth/login", json={"email": "user2@example.com", "password": "password123"}).status_code == 200
+    assert "user2@example.com" not in api_auth._failed_logins

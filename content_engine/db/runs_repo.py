@@ -73,6 +73,17 @@ def try_reclaim_failed(pool: ConnectionPool, run_id: str) -> bool:
         return cursor.rowcount > 0
 
 
+def try_claim_for_retry(pool: ConnectionPool, run_id: str) -> bool:
+    """Marks a run as being retried, only if nobody has claimed it yet. Two
+    concurrent /retry calls can't both get True, so one click = one new run."""
+    with pool.connection() as conn:
+        cursor = conn.execute(
+            "UPDATE runs SET retried_as='pending' WHERE run_id=%s AND retried_as IS NULL", (run_id,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def mark_running(pool: ConnectionPool, run_id: str) -> None:
     with pool.connection() as conn:
         conn.execute(
@@ -84,7 +95,7 @@ def mark_running(pool: ConnectionPool, run_id: str) -> None:
 
 _UPDATABLE_COLUMNS = {
     "user_id", "youtube_account_id", "topic", "trigger_source", "schedule_id", "status",
-    "current_stage", "dry_run", "requested_privacy", "effective_privacy", "target_platforms",
+    "current_stage", "dry_run", "requested_privacy", "effective_privacy", "target_platforms", "retried_as",
     "source_video_id", "source_video_title", "source_video_url", "segment_start_s", "segment_end_s",
     "segment_score", "clip_path", "metadata_title", "metadata_description", "metadata_hashtags",
     "error_message", "work_dir", "started_at", "finished_at", "batch_id", "scheduled_upload_at",
