@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, getAuthToken, setAuthToken, setUnauthorizedHandler } from "@/lib/api";
+import { ApiError, apiFetch, getAuthToken, setAuthToken, setUnauthorizedHandler } from "@/lib/api";
 
 export type Role = "admin" | "viewer";
 
@@ -56,26 +56,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     });
 
-    if (getAuthToken()) {
+    // Only a 401 means the saved session is invalid. Anything else (network
+    // error, 502/503 while the free-plan backend wakes up) is retried for about
+    // a minute and a half instead of bouncing a logged-in user to /login.
+    const validate = (attempt: number) => {
       apiFetch<AuthUser>("/api/auth/me")
         .then((me) => {
-          if (!cancelled) setUser(me);
-        })
-        .catch(() => {
-          // apiFetch already cleared the stored token on a 401; this just
-          // syncs local state (also covers network errors, where it doesn't).
           if (!cancelled) {
-            setToken(null);
-            setUser(null);
+            setUser(me);
+            setInitializing(false);
           }
         })
-        .finally(() => {
-          if (!cancelled) setInitializing(false);
+        .catch((err) => {
+          if (cancelled) return;
+          const unauthorized = err instanceof ApiError && err.status === 401;
+          if (!unauthorized && attempt < 9) {
+            retryTimer = setTimeout(() => validate(attempt + 1), 10000);
+            return;
+          }
+          // apiFetch already cleared the stored token on a 401; this syncs local state.
+          setToken(null);
+          setUser(null);
+          setInitializing(false);
         });
-    }
+    };
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    if (getAuthToken()) validate(0);
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       setUnauthorizedHandler(null);
     };
   }, [clearAuth, router]);

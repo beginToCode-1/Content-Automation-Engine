@@ -72,6 +72,10 @@ export function useRunModals() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onResolvedRef = useRef<((run: Run) => void) | null>(null);
 
+  const retryPollingRunId = useRef<string | null>(null);
+  const [retryStatus, setRetryStatus] = useState("");
+  const [retrying, setRetrying] = useState(false);
+
   const clearPoll = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -82,6 +86,10 @@ export function useRunModals() {
   const closeModal = useCallback(() => {
     clearPoll();
     onResolvedRef.current = null;
+    // A retry that was still being watched must not leave the next modal's
+    // Retry button disabled with a stale status line.
+    setRetrying(false);
+    setRetryStatus("");
     setState({ kind: "closed" });
   }, [clearPoll]);
 
@@ -130,9 +138,6 @@ export function useRunModals() {
     }
   }, []);
 
-  const retryPollingRunId = useRef<string | null>(null);
-  const [retryStatus, setRetryStatus] = useState("");
-  const [retrying, setRetrying] = useState(false);
 
   const retryRun = useCallback(
     async (runId: string) => {
@@ -147,7 +152,7 @@ export function useRunModals() {
         pollRef.current = setInterval(async () => {
           try {
             const check = await fetchRun(pollId);
-            if (check.run.status === "succeeded" || check.run.status === "failed") {
+            if (check.run.status === "succeeded" || check.run.status === "failed" || check.run.status === "cancelled") {
               clearPoll();
               setState({ kind: "diagnostic", run: check.run });
               setRetrying(false);

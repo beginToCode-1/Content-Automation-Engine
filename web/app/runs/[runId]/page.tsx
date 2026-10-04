@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { apiFetch, mediaUrl, platformsFromStr, type Run, type RunDetailResponse, type RunEvent, type Upload } from "@/lib/api";
+import { ApiError, apiFetch, mediaUrl, platformsFromStr, type Run, type RunDetailResponse, type RunEvent, type Upload } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function RunDetailPage() {
@@ -18,6 +18,7 @@ export default function RunDetailPage() {
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [cancellingRun, setCancellingRun] = useState(false);
 
@@ -41,9 +42,10 @@ export default function RunDetailPage() {
         if (data.run.status === "pending" || data.run.status === "running") {
           pollTimerRef.current = setTimeout(poll, 2000);
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
-          setNotFound(true);
+          if (err instanceof ApiError && err.status === 404) setNotFound(true);
+          else setLoadError(err instanceof Error ? err.message : String(err));
           setLoading(false);
         }
       }
@@ -127,6 +129,17 @@ export default function RunDetailPage() {
     return (
       <>
         <PageHeader breadcrumb="Runs" title="Loading..." />
+      </>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <>
+        <PageHeader breadcrumb="Runs" title="Couldn't load this run" />
+        <p className="error">
+          Couldn&apos;t reach the server ({loadError}). It may still be waking up. Refresh the page to try again.
+        </p>
       </>
     );
   }

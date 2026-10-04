@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { apiFetch, platformsFromStr, type Batch, type BatchClip, type BatchDetailResponse } from "@/lib/api";
+import { ApiError, apiFetch, platformsFromStr, type Batch, type BatchClip, type BatchDetailResponse } from "@/lib/api";
 
 export default function BatchDetailPage() {
   const params = useParams<{ batchId: string }>();
@@ -29,8 +29,9 @@ export default function BatchDetailPage() {
         if (data.batch.status !== "running") {
           return;
         }
-      } catch {
-        // transient network error - keep polling
+      } catch (err) {
+        // A 4xx (e.g. 404) will never recover - stop. Network errors and 5xx keep polling.
+        if (err instanceof ApiError && err.status >= 400 && err.status < 500) return;
       }
       if (!cancelled) pollTimerRef.current = setTimeout(poll, 3000);
     }
@@ -42,7 +43,8 @@ export default function BatchDetailPage() {
         setBatch(data.batch);
         setClips(data.clips);
         setLoading(false);
-        poll();
+        // load() already fetched the current state - wait before the first poll.
+        if (data.batch.status === "running") pollTimerRef.current = setTimeout(poll, 3000);
       } catch {
         if (!cancelled) {
           setNotFound(true);

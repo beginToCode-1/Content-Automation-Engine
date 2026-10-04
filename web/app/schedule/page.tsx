@@ -7,11 +7,36 @@ import YouTubeAccountPicker from "@/components/YouTubeAccountPicker";
 import { apiFetch, platformsFromStr, type ScheduleEntry } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
+// The backend schedules in UTC. Times typed here are the user's local time, so
+// convert on the way in and back to local on the way out.
+const pad = (n: number) => String(n).padStart(2, "0");
+
+function localHHMMToUtc(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+function utcHHMMToLocal(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const d = new Date();
+  d.setUTCHours(h, m, 0, 0);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatWhen(entry: ScheduleEntry): string {
+  if (entry.scheduled_time) return new Date(entry.scheduled_time).toLocaleString();
+  if (entry.daily_time) return `Daily at ${utcHHMMToLocal(entry.daily_time)}`;
+  return "-";
+}
+
 export default function SchedulePage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const [schedules, setSchedules] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   const [topic, setTopic] = useState("");
   const [platforms, setPlatforms] = useState<string[]>(["youtube"]);
@@ -29,7 +54,11 @@ export default function SchedulePage() {
   function reloadSchedules() {
     setLoading(true);
     apiFetch<{ schedules: ScheduleEntry[] }>("/api/schedule")
-      .then((data) => setSchedules(data.schedules))
+      .then((data) => {
+        setSchedules(data.schedules);
+        setLoadError("");
+      })
+      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   }
 
@@ -38,6 +67,9 @@ export default function SchedulePage() {
     apiFetch<{ schedules: ScheduleEntry[] }>("/api/schedule")
       .then((data) => {
         if (!cancelled) setSchedules(data.schedules);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -63,8 +95,8 @@ export default function SchedulePage() {
           topic,
           recurrence,
           platforms,
-          scheduled_time: recurrence === "once" ? scheduledTime : null,
-          daily_time: recurrence === "daily" ? dailyTime : null,
+          scheduled_time: recurrence === "once" ? new Date(scheduledTime).toISOString() : null,
+          daily_time: recurrence === "daily" ? localHHMMToUtc(dailyTime) : null,
           youtube_account_id: platforms.includes("youtube") ? youtubeAccountId : undefined,
         }),
       });
@@ -192,14 +224,25 @@ export default function SchedulePage() {
               />
               <label htmlFor="rec-daily">Daily</label>
             </div>
-            <input
-              type="datetime-local"
-              name="scheduled_time"
-              style={{ marginBottom: 8 }}
-              value={scheduledTime}
-              onChange={(e) => setScheduledTime(e.target.value)}
-            />
-            <input type="time" name="daily_time" value={dailyTime} onChange={(e) => setDailyTime(e.target.value)} />
+            {recurrence === "once" ? (
+              <input
+                type="datetime-local"
+                name="scheduled_time"
+                aria-label="Date and time (your local time)"
+                required
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+              />
+            ) : (
+              <input
+                type="time"
+                name="daily_time"
+                aria-label="Time of day (your local time)"
+                required
+                value={dailyTime}
+                onChange={(e) => setDailyTime(e.target.value)}
+              />
+            )}
           </div>
 
           <button
@@ -232,7 +275,14 @@ export default function SchedulePage() {
               </tr>
             </thead>
             <tbody>
-              {!loading && schedules.length === 0 && (
+              {loadError && (
+                <tr>
+                  <td colSpan={7} className="error">
+                    Couldn&apos;t reach the server ({loadError}). It may still be waking up. Refresh to try again.
+                  </td>
+                </tr>
+              )}
+              {!loadError && !loading && schedules.length === 0 && (
                 <tr>
                   <td colSpan={7}>No scheduled topics yet.</td>
                 </tr>
@@ -241,7 +291,7 @@ export default function SchedulePage() {
                 <tr key={entry.id}>
                   <td>{entry.topic}</td>
                   <td>{entry.recurrence}</td>
-                  <td>{entry.scheduled_time || entry.daily_time}</td>
+                  <td>{formatWhen(entry)}</td>
                   <td>{platformsFromStr(entry.target_platforms).join(", ")}</td>
                   <td>{entry.status}</td>
                   <td>{entry.last_run_id ? <Link href={`/runs/${entry.last_run_id}`}>{entry.last_run_id}</Link> : "-"}</td>

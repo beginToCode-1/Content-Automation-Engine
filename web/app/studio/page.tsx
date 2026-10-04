@@ -67,6 +67,9 @@ export default function StudioPage() {
 
   useEffect(() => {
     return () => {
+      // Also drop the active run, so a request still in flight when the user
+      // leaves the page can't schedule another poll.
+      activeRunIdRef.current = null;
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
   }, []);
@@ -102,7 +105,7 @@ export default function StudioPage() {
         const idx = stageIndexForKey(data.run.current_stage);
         const effectiveIdx = idx === -1 ? 0 : idx;
         setHighestIdx(effectiveIdx);
-        setRunStatus(data.run.status as "pending" | "running" | "succeeded" | "failed");
+        setRunStatus((data.run.status === "cancelled" ? "failed" : data.run.status) as "pending" | "running" | "succeeded" | "failed");
 
         if (data.run.status === "succeeded") {
           setPreviewNode(
@@ -116,10 +119,10 @@ export default function StudioPage() {
           setIdle(true);
           return;
         }
-        if (data.run.status === "failed") {
+        if (data.run.status === "failed" || data.run.status === "cancelled") {
           setPreviewNode(
             <>
-              Run failed: {data.run.error_message || "see run detail"}.{" "}
+              Run {data.run.status}: {data.run.error_message || "see run detail"}.{" "}
               <Link href={`/runs/${runId}`}>
                 View full run {CHEVRON_ICON}
               </Link>

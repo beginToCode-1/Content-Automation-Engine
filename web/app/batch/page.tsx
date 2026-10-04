@@ -41,6 +41,7 @@ export default function BatchPage() {
 
   const [batches, setBatches] = useState<Batch[]>([]);
   const [loadingBatches, setLoadingBatches] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +65,9 @@ export default function BatchPage() {
     apiFetch<{ batches: Batch[] }>("/api/batches?limit=20")
       .then((data) => {
         if (!cancelled) setBatches(data.batches);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
         if (!cancelled) setLoadingBatches(false);
@@ -329,7 +333,14 @@ export default function BatchPage() {
               </tr>
             </thead>
             <tbody>
-              {!loadingBatches && batches.length === 0 && (
+              {loadError && (
+                <tr>
+                  <td colSpan={6} className="error">
+                    Couldn&apos;t reach the server ({loadError}). It may still be waking up. Refresh to try again.
+                  </td>
+                </tr>
+              )}
+              {!loadError && !loadingBatches && batches.length === 0 && (
                 <tr>
                   <td colSpan={6}>No batches yet. Start one above.</td>
                 </tr>

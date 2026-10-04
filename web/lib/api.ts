@@ -26,10 +26,16 @@ async function parseErrorDetail(res: Response): Promise<string> {
   try {
     const body = await res.json();
     if (body && typeof body.detail === "string") return body.detail;
+    // FastAPI validation errors (422) carry a list of {msg, ...} objects.
+    if (body && Array.isArray(body.detail)) {
+      const msgs = body.detail.map((d: { msg?: string }) => d?.msg).filter(Boolean);
+      if (msgs.length) return msgs.join("; ");
+    }
   } catch {
-    // ignore - fall through to statusText
+    // ignore - no JSON body (e.g. a proxy 502 while the server restarts)
   }
-  return res.statusText;
+  // statusText is always empty over HTTP/2, so never rely on it alone.
+  return res.statusText || `Request failed (${res.status})`;
 }
 
 // ---------- Auth token plumbing ----------

@@ -19,6 +19,7 @@ export default function RunsLibraryPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("");
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
 
   const { openClipPreview, openMetadataInspector, openDiagnostic, modal } = useRunModals();
 
@@ -27,6 +28,9 @@ export default function RunsLibraryPage() {
     apiFetch<RunsListResponse>("/api/runs?limit=200")
       .then((data) => {
         if (!cancelled) setRuns(data.runs);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -142,7 +146,14 @@ export default function RunsLibraryPage() {
               </tr>
             </thead>
             <tbody id="library-rows">
-              {!loading && visibleRuns.length === 0 && (
+              {loadError && (
+                <tr>
+                  <td colSpan={6} className="error">
+                    Couldn&apos;t reach the server ({loadError}). It may still be waking up. Refresh to try again.
+                  </td>
+                </tr>
+              )}
+              {!loadError && !loading && visibleRuns.length === 0 && (
                 <tr>
                   <td colSpan={6}>No runs yet.</td>
                 </tr>
@@ -166,7 +177,16 @@ export default function RunsLibraryPage() {
                           className="badge badge-failed diagnostic-trigger"
                           style={{ cursor: "pointer" }}
                           title="Click for diagnostics"
+                          role="button"
+                          tabIndex={0}
+                          aria-label="Failed. Open diagnostics"
                           onClick={() => openDiagnostic(run.run_id, updateRunInPlace)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              openDiagnostic(run.run_id, updateRunInPlace);
+                            }
+                          }}
                         >
                           failed
                         </span>

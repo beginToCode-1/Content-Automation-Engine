@@ -190,7 +190,6 @@ export default function SelfUploadPage() {
               id="upload-file"
               name="file"
               accept="video/mp4"
-              required
               hidden
               ref={fileInputRef}
               onChange={(e) => {
