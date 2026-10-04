@@ -148,3 +148,14 @@ def test_run_skips_a_video_without_captions_before_downloading_it(tmp_path):
 
     assert result.source_video.video_id == "good"
     assert [c.args[0] for c in download.call_args_list] == ["good"]  # the bad one was never downloaded
+
+
+def test_stage_messages_include_how_long_the_stage_took(tmp_path):
+    import re
+
+    messages = {}
+    with _patch_stages(tmp_path):
+        run_pipeline("stoic philosophy", _fake_settings(tmp_path), dry_run=True,
+                     on_progress=lambda stage, msg: messages.setdefault(stage, msg))
+    for stage in ("download", "render", "metadata"):
+        assert re.search(r"\[\d+\.\ds\]$", messages[stage]), messages[stage]

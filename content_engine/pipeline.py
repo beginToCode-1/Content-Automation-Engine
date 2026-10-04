@@ -241,6 +241,16 @@ def run_pipeline(
     def check_cancelled() -> None:
         _check_cancelled(cancel_event, run_id, logger)
 
+    stage_started = time.monotonic()
+
+    def took() -> str:
+        """Time since the previous call, shown on each stage's log line so slow
+        stages are visible in the dashboard."""
+        nonlocal stage_started
+        now = time.monotonic()
+        elapsed, stage_started = now - stage_started, now
+        return f" [{elapsed:.1f}s]"
+
     try:
         check_cancelled()
         oauth_client = _resolve_youtube_oauth_client(settings, youtube_account_id)
@@ -249,7 +259,7 @@ def run_pipeline(
         candidates = search_videos(
             topic, client=search_client, creative_commons_only=settings.youtube_creative_commons_only
         )
-        text = f"Found {len(candidates)} candidate videos"
+        text = f"Found {len(candidates)} candidate videos" + took()
         logger.info(text)
         notify("search", text)
 
@@ -264,7 +274,7 @@ def run_pipeline(
             notify("search", text)
             try:
                 transcript = get_transcript(video.video_id)
-                text = f"Fetched transcript with {len(transcript)} lines"
+                text = f"Fetched transcript with {len(transcript)} lines" + took()
                 logger.info(text)
                 notify("transcript", text)
                 segment = select_best_segment(transcript, topic)
@@ -283,8 +293,9 @@ def run_pipeline(
         notify("segment", text)
 
         check_cancelled()
+        took()  # don't count segment scoring toward the download time
         download_result = download_video(best_video.video_id, run_dir)
-        text = f"Downloaded video ({download_result.duration_s:.1f}s) to {download_result.video_path}"
+        text = f"Downloaded video ({download_result.duration_s:.1f}s) to {download_result.video_path}" + took()
         logger.info(text)
         notify("download", text)
 
@@ -292,7 +303,7 @@ def run_pipeline(
         clip_path = build_clip(
             download_result.video_path, segment, run_dir, title_overlay=topic, check_cancelled=check_cancelled
         )
-        text = f"Built clip at {clip_path}"
+        text = f"Built clip at {clip_path}" + took()
         logger.info(text)
         notify("render", text)
 
@@ -303,7 +314,7 @@ def run_pipeline(
         (run_dir / "metadata.json").write_text(
             json.dumps(dataclasses.asdict(metadata), indent=2), encoding="utf-8"
         )
-        text = f"Generated metadata: {metadata.title}"
+        text = f"Generated metadata: {metadata.title}" + took()
         logger.info(text)
         notify("metadata", text)
 
